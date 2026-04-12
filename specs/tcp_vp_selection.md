@@ -6,6 +6,51 @@ When new TCP connections are created in FunOS, VPs (Virtual Processors) are sele
 
 ---
 
+## VP Selection Flow
+
+```mermaid
+flowchart TD
+    A[New TCP Connection] --> B{Connection Type?}
+    B -->|Passive / Listen| C[Strategy A: Hash-Based]
+    B -->|Active / Connect| D[Strategy A: Hash-Based<br/>flow_id % nu_rx count]
+
+    C --> E[tcp_admin_init_push<br/>flow_id % nu_rx count]
+    E --> F{Cluster affinity<br/>in accept?}
+    F -->|No| G[Keep hash-based VP]
+    F -->|Yes| H[Strategy B: Round-Robin<br/>wp_tcp_storage per cluster]
+
+    D --> I{rsvd0 set by<br/>socket layer?}
+    I -->|Yes| J[Strategy B: Round-Robin<br/>Atomic RR in caller's cluster]
+    J --> K[Rewrite all 4 flows<br/>hton, ntoh, xmt, xmt_pb]
+
+    style C fill:#4a9eff,color:#fff
+    style D fill:#4a9eff,color:#fff
+    style H fill:#2ecc71,color:#fff
+    style J fill:#2ecc71,color:#fff
+    style K fill:#e67e22,color:#fff
+```
+
+```mermaid
+sequenceDiagram
+    participant App as Application VP
+    participant Sock as Socket Layer
+    participant TCP as TCP Stack
+    participant WP as Worker Pool
+
+    App->>Sock: connect_req_push()
+    Note over Sock: rsvd0 = caller's cluster GID
+    Sock->>TCP: tcp_host_connect_req
+    TCP->>WP: wp_get(nu_rx, flow_id % count)
+    Note over TCP: Strategy A: hash-based VP assigned
+    TCP->>TCP: Check rsvd0 cluster affinity
+    TCP->>WP: atomic RR from wp_tcp_storage[cluster]
+    Note over TCP: Strategy B: round-robin rewrite
+    TCP->>TCP: Rewrite hton, ntoh, xmt, xmt_pb flows
+    TCP-->>App: Connection on cluster-local VP
+```
+
+---
+
 ## Two VP Selection Strategies
 
 ### Strategy A: Hash-Based (Default)
