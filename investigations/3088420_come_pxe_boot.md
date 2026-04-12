@@ -25,6 +25,57 @@ After PXE boot with FunSDK 24544, the COMe (RDP at 10.30.240.142) becomes unreac
 
 ## Timeline (from come_log.txt)
 
+```mermaid
+sequenceDiagram
+    participant COMe as COMe (UEFI)
+    participant DPU as DPU (FunOS)
+    participant Net as Network / WDS Server
+
+    Note over DPU: FunOS boots, FPG/12 link up at 100G
+    COMe->>COMe: UEFI boot → NIC discovered (SNP/UNDI3.1)
+    COMe->>COMe: Network stack init (Ip4, Tcp, Udp, Dhcp, PxeBase)
+
+    rect rgb(220, 240, 220)
+        Note over COMe,Net: PXE Boot (UDP — works)
+        COMe->>Net: DHCP Discover/Request (UDP)
+        Net-->>COMe: DHCP Offer/Ack → 10.30.240.142
+        COMe->>Net: TFTP: Request wdsmgfw.efi (UDP)
+        Net-->>COMe: TFTP: 1095072 bytes transferred
+        COMe->>COMe: SecureBoot verify wdsmgfw.efi ✓
+    end
+
+    rect rgb(255, 220, 220)
+        Note over COMe,Net: WDS Client (TCP — broken)
+        COMe->>Net: WDS: "Contacting Server..."
+        Note over COMe: TcpDxe has no IP config<br/>(PXE DHCP ≠ Ip4Config2)
+        COMe--xNet: TCP fails: "No appropriate IpSender" ×36K
+        Note over COMe: Stuck forever — never reaches<br/>ExitBootServices / Windows
+    end
+```
+
+## Root Cause Dataflow
+
+```mermaid
+flowchart LR
+    subgraph UEFI["UEFI Network Stack"]
+        PXE[PxeBaseCode<br/>own IP4 instance]
+        TCP[TcpDxe<br/>own IP4 instance]
+        IP4C[Ip4Config2<br/>system-wide]
+    end
+
+    DHCP[DHCP Lease<br/>10.30.240.142]
+
+    DHCP -->|configures| PXE
+    DHCP -.-x|NOT propagated| IP4C
+    TCP -->|UseDefaultAddress=TRUE| IP4C
+    IP4C -->|EFI_NO_MAPPING| TCP
+
+    style PXE fill:#2ecc71,color:#fff
+    style TCP fill:#e74c3c,color:#fff
+    style IP4C fill:#e67e22,color:#fff
+    style DHCP fill:#3498db,color:#fff
+```
+
 1. **UEFI boot** → NIC discovered: SNP/UNDI3.1 on MAC `7C-C0-AA-53-B0-7B` (line 20181)
 2. **Network stack init** → Ip4Dxe, TcpDxe, Udp4Dxe, Dhcp4Dxe, PxeBaseCode all start (lines 20200-20234)
 3. **PXE boot begins** → "Start PXE over IPv4 on MAC: 7C-C0-AA-53-B0-7B" (line 22206)
