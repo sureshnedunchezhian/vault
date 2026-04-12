@@ -81,34 +81,85 @@ flowchart TD
 These are **control-plane packet** paths. They call `bam_alloc_etp_cmdlist()`
 directly without consulting `xmt_res_nu`.
 
+### Site 3 — `tcp_xmt_update()` (line 2601) — Force ACK / FIN
+
 ```mermaid
 flowchart TD
-    subgraph "Site 3 — tcp_xmt_update  (line 2601)"
-        U1[tcp_xmt_update_send] --> U2[tcp_xmt_update]
-        U2 --> U3{"force ACK / FIN / send_fin?"}
-        U3 -- Yes --> U4["bam_alloc_etp_cmdlist(THIS_MODULE)<br/>⚠️ NO xmt_res_nu check"]
-        U4 -- NULL --> U5["TCP_XMT_STATS_INC_STAT(xmt_num_bam_drop)<br/>return — silently dropped"]
-    end
+    U1["tcp_fsm_netw_recvseg_in_active_full<br/>tcp_fsm_netw_recvseg_in_active_fast<br/>tcp_fsm_netw_recvseg_in_synsent<br/>tcp_fsm_netw_recvseg_in_synrcvd<br/>tcp_fsm_netw_recvseg_in_lastack<br/>tcp_fsm_netw_recvseg_in_timewait"]
+    U1 -->|"flags: FORCEACK / ACK / SET_ECE"| U2[tcp_xmt_update_send]
+    U2 --> U3[tcp_xmt_update]
+    U3 --> U4{"force ACK / FIN /<br/>send_fin path?"}
+    U4 -- Yes --> U5["bam_alloc_etp_cmdlist(THIS_MODULE)<br/>⚠️ NO xmt_res_nu check"]
+    U5 -- "bam != NULL" --> U6["_tcp_xmt_send_init → _tcp_xmt_send_fini<br/>ACK/FIN sent ✅"]
+    U5 -- "bam == NULL" --> U7["TCP_XMT_STATS_INC_STAT(xmt_num_bam_drop)<br/>return — ACK/FIN silently dropped"]
+    U4 -- "No (has payload)" --> U8["tcp_xmt_send_payload<br/>(uses resource-checked path)"]
 
-    subgraph "Site 4 — tcp_xmt_segment  (line 2704)"
-        S1["tcp_xmt_fin / tcp_xmt_probe /<br/>tcp_xmt_rst / tcp_xmt_syn /<br/>tcp_xmt_synack"] --> S2[tcp_xmt_segment]
-        S2 --> S3["bam_alloc_etp_cmdlist(THIS_MODULE)<br/>⚠️ NO xmt_res_nu check"]
-        S3 -- NULL --> S4["TCP_XMT_STATS_INC_STAT(xmt_num_bam_drop)<br/>sequence state still updated!"]
-    end
-
-    subgraph "Site 5 — tcp_xmt_rawsegment  (line 2978)"
-        R1[tcp_xmt_rawseg] --> R2[tcp_xmt_rawsegment]
-        R2 --> R3["bam_alloc_etp_cmdlist(THIS_MODULE)<br/>⚠️ NO xmt_res_nu check"]
-        R3 -- NULL --> R4["TCP_XMT_STATS_INC_STAT(xmt_num_bam_drop)<br/>return — silently dropped"]
-    end
-
-    style U4 fill:#f44336,color:#fff
-    style S3 fill:#f44336,color:#fff
-    style R3 fill:#f44336,color:#fff
-    style U5 fill:#ff9800,color:#fff
-    style S4 fill:#e91e63,color:#fff
-    style R4 fill:#ff9800,color:#fff
+    style U5 fill:#f44336,color:#fff
+    style U7 fill:#ff9800,color:#fff
+    style U6 fill:#4caf50,color:#fff
 ```
+
+**Failure mode**: Clean `return` — no state mutation, but ACK/FIN is lost.
+Peer must retransmit to trigger another attempt. No backpressure signaled.
+
+---
+
+### Site 4 — `tcp_xmt_segment()` (line 2704) — SYN / SYN-ACK / FIN / RST / Probe
+
+```mermaid
+flowchart TD
+    S0["tcp_fsm.c callers"]
+    S0 --> S1a["tcp_xmt_fin — FIN send"]
+    S0 --> S1b["tcp_xmt_probe — keepalive/persist"]
+    S0 --> S1c["tcp_xmt_rst — abort RST"]
+    S0 --> S1d["tcp_xmt_syn — SYN retransmit"]
+    S0 --> S1e["tcp_xmt_synack — SYN-ACK response"]
+
+    S1a & S1b & S1c & S1d & S1e --> S2[tcp_xmt_segment]
+    S2 --> S3["bam_alloc_etp_cmdlist(THIS_MODULE)<br/>⚠️ NO xmt_res_nu check"]
+    S3 -- "bam != NULL" --> S4["switch on th_flags<br/>build + send packet ✅"]
+    S3 -- "bam == NULL" --> S5["TCP_XMT_STATS_INC_STAT(xmt_num_bam_drop)<br/>falls through to switch..."]
+    S5 --> S6["switch still executes:<br/>• SYN/FIN: xmt_snd_nxt++ ⚠️<br/>• FIN: xmt_snd_fin set ⚠️<br/>• RST: xmt_th_flag_rst = 1<br/>but if (bam) blocks skip actual send"]
+    S6 --> S7["⚠️ STATE DESYNC<br/>sequence advanced, packet never sent"]
+
+    style S3 fill:#f44336,color:#fff
+    style S7 fill:#e91e63,color:#fff
+    style S4 fill:#4caf50,color:#fff
+```
+
+**Failure mode**: **Most dangerous** — the function does NOT early-return on
+`bam == NULL`. It falls through the `switch` statement which updates internal
+state (`xmt_snd_nxt`, `xmt_snd_max`, `xmt_snd_fin`, `xmt_th_flag_rst`) but
+skips the actual packet send (guarded by `if (bam)`). Sequence numbers desync
+from what the peer has seen.
+
+---
+
+### Site 5 — `tcp_xmt_rawsegment()` (line 2978) — Raw RST
+
+```mermaid
+flowchart TD
+    R0["Inbound packet triggers\ntcp_fsm.c handler"]
+    R0 --> R0a["recvseg_in_listen — bad ACK"]
+    R0 --> R0b["recvseg_in_synsent — bad SYN-ACK"]
+    R0 --> R0c["recvseg_in_synrcvd — bad ACK/SYN"]
+    R0 --> R0d["recvseg_in_closed — any segment"]
+    R0 --> R0e["recvseg_in_accept — ECONNRESET"]
+
+    R0a & R0b & R0c & R0d & R0e --> R1[tcp_xmt_rawseg]
+    R1 --> R2[tcp_xmt_rawsegment]
+    R2 --> R3["bam_alloc_etp_cmdlist(THIS_MODULE)<br/>⚠️ NO xmt_res_nu check"]
+    R3 -- "bam != NULL" --> R4["Build raw RST with custom seq/ack<br/>_tcp_xmt_send_fini → sent ✅"]
+    R3 -- "bam == NULL" --> R5["TCP_XMT_STATS_INC_STAT(xmt_num_bam_drop)<br/>return — RST silently dropped"]
+
+    style R3 fill:#f44336,color:#fff
+    style R5 fill:#ff9800,color:#fff
+    style R4 fill:#4caf50,color:#fff
+```
+
+**Failure mode**: Clean early `return` — no state mutation. The reactive RST is
+lost. Peer doesn't know the connection is rejected. Generally lowest severity
+since these are unsolicited RSTs, but under a flood all RSTs are suppressed.
 
 ---
 
