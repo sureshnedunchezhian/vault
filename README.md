@@ -7,7 +7,7 @@ Shared documents, specs, presentations, and investigation notes.
 | Document | Description |
 |----------|-------------|
 | [MHP Opens Consolidated Report](specs/MHP_Opens_Consolidated_Report.md) | ANS/HostNet offsite — MHP design decisions & open items |
-| [Flash Architecture](specs/flash_arch.html) | Flash assembler architecture reference |
+| [Flash Architecture](specs/flash_arch.html) ([view](https://sureshnedunchezhian.github.io/vault/specs/flash_arch.html)) | Flash assembler architecture reference |
 | [TCP VP Selection](specs/tcp_vp_selection.md) | TCP VP selection from worker pool |
 | [VFP Proxy Protocol V2 Spec](specs/vfp_proxy_protocol_v2_spec.md) | VFP Proxy Protocol V2 design specification |
 
@@ -15,7 +15,7 @@ Shared documents, specs, presentations, and investigation notes.
 
 | Document | Description |
 |----------|-------------|
-| [AI Dev Presentation](presentations/ai_dev_presentation.html) | AI-assisted development workflow |
+| [AI Dev Presentation](presentations/ai_dev_presentation.html) ([view](https://sureshnedunchezhian.github.io/vault/presentations/ai_dev_presentation.html)) | AI-assisted development workflow |
 
 ## Investigations
 
