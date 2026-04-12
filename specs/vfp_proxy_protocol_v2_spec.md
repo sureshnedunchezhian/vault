@@ -159,24 +159,21 @@ typedef enum _VFP_SYN_STATE {
 
 ### 4.2 State Transitions
 
-```
-                    ┌──────────────────────────────────────────────┐
-                    │           OUTBOUND FLOW (Client)             │
-                    │                                              │
-                    │  Closed ──SYN──→ SynSent                    │
-                    │                    │                          │
-                    │             recv SYN-ACK                     │
-                    │                    ↓                          │
-                    │           ReadyToSendProxyData               │
-                    │                    │                          │
-                    │          inject proxy packet                  │
-                    │                    ↓                          │
-                    │              ProxySent                        │
-                    │                    │                          │
-                    │           recv ProxyAck                       │
-                    │                    ↓                          │
-                    │                 Open ──→ [OFFLOAD TO HW]     │
-                    └──────────────────────────────────────────────┘
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Closed
+    Closed --> SynSent: SYN sent
+    SynSent --> ReadyToSendProxyData: recv SYN-ACK
+    ReadyToSendProxyData --> ProxySent: inject proxy packet
+    ProxySent --> Open: recv ProxyAck
+    Open --> [*]: offload to GFT/NIC
+
+    state ReadyToSendProxyData {
+        direction LR
+        [*] --> BuildBuffer: VfpConstructProxyProtocol()
+        BuildBuffer --> InjectPacket: VfpQueueProxyPacket()
+    }
 ```
 
 ### 4.3 Adjustment Gating Condition
@@ -199,35 +196,37 @@ if (tcpPacket->TcpHeader->SYN ||
 
 ### 5.1 Annotated Packet Sequence
 
-```
- Client (A)              VFP/SDN                        Server (B)
- ──────────              ───────                        ──────────
+```mermaid
+sequenceDiagram
+    participant C as Client (A)
+    participant V as VFP / SDN
+    participant S as Server (B)
 
- ① SYN seq=A ack=0  ──→  adjust seq   ──→  SYN seq=A-L ack=0 win=0
-    [original]            [seq -= L]        [server sees reduced ISN]
+    Note over C,S: TCP 3-Way Handshake (with seq manipulation)
 
- ② SYNACK seq=B     ←──  adjust ack   ←──  SYNACK seq=B ack=A-L
-    ack=A win=Y           [ack += L]        [server ACKs adjusted ISN]
-    [client sees                            [original]
-     original ack]
+    C->>V: ① SYN seq=A ack=0
+    Note over V: seq -= L
+    V->>S: SYN seq=A-L ack=0 win=0
 
- ③ ACK seq=A ack=B  ──→  [DROP]            (never reaches server)
-    [client's final                         
-     handshake ACK]                         
+    S->>V: ② SYN-ACK seq=B ack=A-L
+    Note over V: ack += L
+    V->>C: SYN-ACK seq=B ack=A win=0
 
- ④                        [INJECT]    ══→  ACK seq=A-L ack=B win=24
-                          proxy packet      payload=[Proxy v2 data, L bytes]
-                                            [server receives proxy info]
+    C->>V: ③ ACK seq=A ack=B
+    Note over V: DROP (client's final ACK)
 
- ⑤ ACK seq=B ack=A  ←──  [rewrite]   ←──  ACK seq=B ack=A win=Y
-    [ProxyAck]            [ack += L         [server ACKs: (A-L)+L = A]
-     but ack already       naturally = A]
-     correct]
+    Note over C,S: Proxy Protocol V2 Injection
 
- ⑥                        [INJECT]    ══→  ACK seq=A ack=B win=X
-                          window restore    [restores real window to server]
+    Note over V: Build proxy v2 payload (L bytes)
+    V->>S: ④ ACK seq=A-L ack=B win=24<br/>payload=[Proxy V2 data]
 
- ─── Connection OPEN ─── Flow OFFLOADED to GFT/NIC ─── No more adjustments ───
+    S->>V: ⑤ ACK seq=B ack=A
+    Note over V: ProxyAck! (A-L)+L = A<br/>seq space self-corrected
+    V->>C: ACK seq=B ack=A
+
+    V->>S: ⑥ ACK seq=A ack=B win=X<br/>(restore real window)
+
+    Note over C,S: Connection OPEN — Flow OFFLOADED to GFT/NIC
 ```
 
 ### 5.2 Phase Details

@@ -6,6 +6,67 @@
 
 ---
 
+## Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph Host["Host Node"]
+        subgraph CP["Control Plane"]
+            VCPA[VCPA]
+            NMA[NmAgent]
+        end
+        subgraph DP["Data Plane"]
+            VDPA[VDPA Interface]
+            VFP_NG["VFP-NG / OVL4"]
+            GFT[GFT / NIC HW Offload]
+        end
+        subgraph ENIs["ENI Scope"]
+            ENI1[ENI - VNET]
+            ENI2[ENI - Non-VNET]
+            CONT["Containers\n(SWIFT-v1)"]
+        end
+    end
+
+    subgraph External["External"]
+        MERLIN[Merlin / Goal State]
+        AZDASH[AzDASH API]
+        SLB[SLB / MUX]
+        WDS["VNET Peering\n& Mappings"]
+    end
+
+    MERLIN -->|goal state| VCPA
+    VCPA -->|program| AZDASH
+    AZDASH -->|objectid:cookie| VDPA
+    VDPA <-->|"gRPC or FlatBuffers?\n(Open #8)"| VFP_NG
+    VFP_NG -->|offload| GFT
+    SLB <-->|"combined ORT?\n(Open #7)"| VFP_NG
+    WDS -->|mappings| VDPA
+    ENI1 & ENI2 --- VFP_NG
+    CONT -.->|"demux model?\n(Open #1)"| ENI1
+
+    style CONT fill:#f9c74f,color:#000
+    style VDPA fill:#4a9eff,color:#fff
+    style VFP_NG fill:#2ecc71,color:#fff
+```
+
+## Open Items by Area
+
+```mermaid
+pie title Open Items Distribution
+    "SWIFT-v1 / Containers" : 3
+    "AzDASH API & Objects" : 2
+    "ORT / Routes / SLB" : 2
+    "Mappings & Cache" : 1
+    "Encapsulation & Data Path" : 2
+    "Security / DSCP / VTAP" : 2
+    "Metering / CID" : 1
+    "Live Migration" : 1
+    "Multi-VNET" : 1
+    "Infra / Lab" : 1
+```
+
+---
+
 ## 1. SWIFT-v1 Architecture (Top Priority)
 
 ### Decision
