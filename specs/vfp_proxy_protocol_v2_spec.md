@@ -161,18 +161,22 @@ typedef enum _VFP_SYN_STATE {
 
 ```mermaid
 stateDiagram-v2
-    direction LR
-    [*] --> Closed
-    Closed --> SynSent: SYN sent
-    SynSent --> ReadyToSendProxyData: recv SYN-ACK
-    ReadyToSendProxyData --> ProxySent: inject proxy packet
-    ProxySent --> Open: recv ProxyAck
-    Open --> [*]: offload to GFT/NIC
+    direction TB
 
-    state ReadyToSendProxyData {
-        direction LR
-        [*] --> BuildBuffer: VfpConstructProxyProtocol()
-        BuildBuffer --> InjectPacket: VfpQueueProxyPacket()
+    [*] --> Closed
+
+    Closed --> SynSent : Client sends SYN\nseq -= L (reserve space)
+
+    SynSent --> ReadyToSendProxyData : Recv SYN-ACK from server\nack += L (hide from client)
+
+    ReadyToSendProxyData --> ProxySent : VFP injects proxy v2 packet\nDrop client ACK, send proxy payload
+
+    ProxySent --> Open : Server ACKs proxy data\n(A−L)+L = A → seq space restored
+
+    Open --> Offloaded : Flow offloaded to GFT / NIC\nNo more seq/ack adjustments
+
+    state Offloaded {
+        [*] --> HardwarePath
     }
 ```
 
