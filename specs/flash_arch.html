@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flash Assembler — Architecture</title>
+<style>
+/* ── Foundations ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#fafbfd;--bg2:#f2f4f8;--bg3:#e8ecf2;
+  --text:#1e2330;--text2:#4d5568;--text3:#7c8598;
+  --border:#dde1e9;--border2:#c8cdd8;
+  --blue:#3b72e9;--blue-light:#edf2ff;--blue-mid:#d8e4fd;
+  --green:#1a9d52;--green-light:#eefbf3;
+  --amber:#c87f08;--amber-light:#fef8ec;
+  --purple:#7044e4;--purple-light:#f3f0ff;
+  --red:#d03030;--red-light:#fdf0f0;
+  --cyan:#0a839e;--cyan-light:#eafbff;
+  --radius:10px;
+  --shadow-sm:0 1px 2px rgba(30,35,48,.06);
+  --shadow:0 1px 4px rgba(30,35,48,.07),0 1px 2px rgba(30,35,48,.04);
+  --shadow-md:0 4px 16px rgba(30,35,48,.09),0 2px 4px rgba(30,35,48,.05);
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Roboto,sans-serif;
+  --mono:'SF Mono','Cascadia Code','Fira Code',Consolas,monospace;
+}
+html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased}
+body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.65;font-size:20px}
+
+/* ── Layout ── */
+.container{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* ── Header ── */
+header{padding:52px 0 44px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#f0f3f9 0%,var(--bg) 100%)}
+header .container{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.header-text h1{font-size:1.85rem;font-weight:700;letter-spacing:-.02em;color:var(--text)}
+.header-text p{color:var(--text2);font-size:.95rem;margin-top:8px;max-width:560px;line-height:1.7}
+.header-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:6px}
+.tag{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;font-size:.76rem;font-weight:600;letter-spacing:.01em;border:1px solid}
+.tag-rust{background:#fff5f0;color:#c2410c;border-color:#fed7aa}
+.tag-hw{background:var(--blue-light);color:var(--blue);border-color:var(--blue-mid)}
+.tag-compiler{background:var(--purple-light);color:var(--purple);border-color:#e9d5ff}
+
+/* ── Pipeline ── */
+.pipeline-section{padding:36px 0 30px}
+.pipeline{display:flex;align-items:center;gap:0;overflow-x:auto;padding:4px 0}
+.pipe-stage{
+  display:flex;align-items:center;gap:0;flex-shrink:0
+}
+.pipe-node{
+  padding:10px 18px;border:1px solid var(--border);background:var(--bg);
+  font-size:.84rem;font-weight:600;cursor:pointer;transition:.15s;
+  white-space:nowrap;position:relative;color:var(--text2)
+}
+.pipe-node:first-child{border-radius:var(--radius) 0 0 var(--radius)}
+.pipe-stage:last-child .pipe-node{border-radius:0 var(--radius) var(--radius) 0}
+.pipe-node:hover{background:var(--blue-light);color:var(--blue);border-color:var(--blue);z-index:1}
+.pipe-node.active{background:var(--blue-light);color:var(--blue);border-color:var(--blue);z-index:1}
+.pipe-sep{width:22px;height:1px;background:var(--border2);flex-shrink:0}
+.pipe-node .pipe-label{font-size:.66rem;font-weight:500;color:var(--text3);display:block;margin-bottom:2px}
+.pipe-node:hover .pipe-label{color:var(--blue)}
+
+/* ── Search ── */
+.search-wrap{padding:0 0 26px}
+.search-wrap input{
+  width:100%;max-width:380px;padding:9px 14px 9px 34px;border:1px solid var(--border);border-radius:var(--radius);
+  font-size:.88rem;background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%237c8598' stroke-width='2.5' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") 11px center no-repeat;
+  color:var(--text);outline:none;transition:.15s
+}
+.search-wrap input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,114,233,.1)}
+.search-wrap input::placeholder{color:var(--text3)}
+.search-wrap .hint{font-size:.74rem;color:var(--text3);margin-top:7px}
+.search-wrap kbd{font-family:var(--mono);font-size:.68rem;background:var(--bg3);border:1px solid var(--border);padding:2px 6px;border-radius:4px}
+
+/* ── Section ── */
+.section{padding:30px 0 10px}
+.section-label{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.section-label h2{font-size:.82rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.section-label .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.section-label hr{flex:1;border:none;height:1px;background:var(--border)}
+.section-blue .section-label h2{color:var(--blue)}.section-blue .dot{background:var(--blue)}
+.section-green .section-label h2{color:var(--green)}.section-green .dot{background:var(--green)}
+.section-amber .section-label h2{color:var(--amber)}.section-amber .dot{background:var(--amber)}
+.section-red .section-label h2{color:var(--red)}.section-red .dot{background:var(--red)}
+
+/* ── Card Grid ── */
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}
+
+/* ── Card ── */
+.card{
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  transition:box-shadow .15s,border-color .15s;cursor:pointer;overflow:hidden
+}
+.card:hover{box-shadow:var(--shadow-md);border-color:var(--border2)}
+.card.expanded{grid-column:1/-1;cursor:default;box-shadow:var(--shadow-md);border-color:var(--border2)}
+.card-head{display:flex;align-items:center;gap:12px;padding:14px 18px}
+.card-icon{
+  width:36px;height:36px;border-radius:8px;display:grid;place-items:center;
+  font-size:.95rem;flex-shrink:0
+}
+.card-head h3{font-size:.95rem;font-weight:650;flex:1}
+.card-head small{display:block;color:var(--text3);font-size:.76rem;font-weight:400;margin-top:2px}
+.card-chevron{color:var(--text3);font-size:.75rem;transition:.2s;flex-shrink:0}
+.card.expanded .card-chevron{transform:rotate(180deg)}
+.card-body{padding:0 18px 14px;color:var(--text2);font-size:.88rem;line-height:1.7}
+.card-detail{max-height:0;overflow:hidden;transition:max-height .35s ease}
+.card.expanded .card-detail{max-height:5000px}
+.card-detail-inner{padding:14px 18px 18px;border-top:1px solid var(--border)}
+
+/* card colour accents */
+.card-blue .card-icon{background:var(--blue-light);color:var(--blue)}
+.card-green .card-icon{background:var(--green-light);color:var(--green)}
+.card-amber .card-icon{background:var(--amber-light);color:var(--amber)}
+.card-purple .card-icon{background:var(--purple-light);color:var(--purple)}
+.card-red .card-icon{background:var(--red-light);color:var(--red)}
+.card-cyan .card-icon{background:var(--cyan-light);color:var(--cyan)}
+.card-blue.expanded{border-color:#93bbfd}
+.card-green.expanded{border-color:#86efac}
+.card-amber.expanded{border-color:#fcd34d}
+.card-purple.expanded{border-color:#c4b5fd}
+.card-red.expanded{border-color:#fca5a5}
+.card-cyan.expanded{border-color:#67e8f9}
+
+/* ── Detail content ── */
+.dt{font-size:.76rem;font-weight:650;text-transform:uppercase;letter-spacing:.05em;margin:16px 0 7px;color:var(--text)}
+.dt:first-child{margin-top:0}
+.dt-blue{color:var(--blue)}.dt-green{color:var(--green)}.dt-amber{color:var(--amber)}
+.dt-purple{color:var(--purple)}.dt-red{color:var(--red)}.dt-cyan{color:var(--cyan)}
+
+table.t{width:100%;border-collapse:collapse;font-size:.84rem;margin:4px 0 10px}
+table.t th,table.t td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--border)}
+table.t th{font-size:.72rem;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);background:var(--bg2)}
+table.t tr:last-child td{border-bottom:none}
+table.t td{color:var(--text2)}
+table.t code{font-family:var(--mono);font-size:.8rem;background:var(--bg3);padding:2px 6px;border-radius:4px;color:var(--text)}
+
+ul.dl{list-style:none;padding:0;margin:4px 0 10px}
+ul.dl li{padding:4px 0;color:var(--text2);font-size:.86rem;display:flex;gap:7px}
+ul.dl li::before{content:'•';color:var(--text3);font-weight:700;flex-shrink:0}
+p.dd{color:var(--text2);font-size:.86rem;margin:4px 0 10px;line-height:1.7}
+
+.chip-row{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 10px}
+.chip{display:inline-block;padding:3px 9px;border-radius:6px;font-size:.74rem;font-weight:600;border:1px solid}
+.ch-blue{background:var(--blue-light);color:var(--blue);border-color:#bfdbfe}
+.ch-green{background:var(--green-light);color:var(--green);border-color:#bbf7d0}
+.ch-amber{background:var(--amber-light);color:var(--amber);border-color:#fde68a}
+.ch-purple{background:var(--purple-light);color:var(--purple);border-color:#ddd6fe}
+.ch-red{background:var(--red-light);color:var(--red);border-color:#fecaca}
+.ch-cyan{background:var(--cyan-light);color:var(--cyan);border-color:#a5f3fc}
+.ch-pink{background:#fdf2f8;color:#db2777;border-color:#fbcfe8}
+
+.mono-block{font-family:var(--mono);font-size:.8rem;line-height:1.75;color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:12px 14px;margin:6px 0 10px;overflow-x:auto;white-space:pre}
+
+/* ── Encoding Diagrams ── */
+.enc{display:flex;gap:1px;margin:6px 0 12px;border-radius:7px;overflow:hidden;font-size:.68rem;font-weight:650;text-align:center;border:1px solid var(--border)}
+.enc-f{padding:8px 2px;min-width:24px;flex-shrink:0;background:var(--bg2);color:var(--text)}
+.enc-f span{display:block;font-weight:400;font-size:.62rem;color:var(--text3);margin-top:2px}
+.enc-f.e-type{background:#fef2f2;color:var(--red)}
+.enc-f.e-func{background:var(--purple-light);color:var(--purple)}
+.enc-f.e-src{background:var(--blue-light);color:var(--blue)}
+.enc-f.e-dst{background:var(--green-light);color:var(--green)}
+.enc-f.e-cond{background:var(--amber-light);color:var(--amber)}
+.enc-f.e-rsvd{background:var(--bg3);color:var(--text3)}
+
+/* ── Footer ── */
+footer{border-top:1px solid var(--border);padding:28px 0;margin-top:44px;text-align:center;background:var(--bg2)}
+footer p{font-size:.8rem;color:var(--text3)}
+footer kbd{font-family:var(--mono);font-size:.68rem;background:var(--bg);border:1px solid var(--border);padding:2px 6px;border-radius:4px}
+
+/* ── Responsive ── */
+@media(max-width:700px){
+  header .container{flex-direction:column}
+  .grid{grid-template-columns:1fr}
+  .pipeline{overflow-x:auto;-webkit-overflow-scrolling:touch}
+}
+
+/* ── Utility ── */
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<!-- ════════════════ HEADER ════════════════ -->
+<header>
+<div class="container">
+  <div class="header-text">
+    <h1>Flash Assembler Architecture</h1>
+    <p>Interactive reference for the S3 flow processor assembler. A classical three-stage compiler&mdash;parser, semantic analyzer, code generator&mdash;targeting the S3 DPU's instruction set across 8 hardware flavours.</p>
+  </div>
+  <div class="header-meta">
+    <span class="tag tag-rust">Rust</span>
+    <span class="tag tag-hw">S3 DPU</span>
+    <span class="tag tag-compiler">3-Stage Compiler</span>
+  </div>
+</div>
+</header>
+
+<!-- ════════════════ PIPELINE ════════════════ -->
+<div class="container">
+<div class="pipeline-section">
+  <div class="pipeline">
+    <div class="pipe-stage"><div class="pipe-node" data-target="source-code"><span class="pipe-label">Input</span>Source</div></div>
+    <div class="pipe-sep"></div>
+    <div class="pipe-stage"><div class="pipe-node" data-target="scanner"><span class="pipe-label">Lexer</span>Scanner</div></div>
+    <div class="pipe-sep"></div>
+    <div class="pipe-stage"><div class="pipe-node" data-target="parser"><span class="pipe-label">Syntax</span>Parser</div></div>
+    <div class="pipe-sep"></div>
+    <div class="pipe-stage"><div class="pipe-node" data-target="ast"><span class="pipe-label">Syntax</span>AST</div></div>
+    <div class="pipe-sep"></div>
+    <div class="pipe-stage"><div class="pipe-node" data-target="model"><span class="pipe-label">Semantics</span>Analyzer</div></div>
+    <div class="pipe-sep"></div>
+    <div class="pipe-stage"><div class="pipe-node" data-target="scheduler"><span class="pipe-label">Semantics</span>Scheduler</div></div>
+    <div class="pipe-sep"></div>
+    <div class="pipe-stage"><div class="pipe-node" data-target="encoder"><span class="pipe-label">Codegen</span>Encoder</div></div>
+    <div class="pipe-sep"></div>
+    <div class="pipe-stage"><div class="pipe-node" data-target="artifact"><span class="pipe-label">Output</span>Artifact</div></div>
+  </div>
+</div>
+
+<!-- ════════════════ SEARCH ════════════════ -->
+<div class="search-wrap">
+  <input type="text" id="searchInput" placeholder="Search components…" autocomplete="off">
+  <div class="hint">Press <kbd>/</kbd> to focus &middot; <kbd>Esc</kbd> to clear</div>
+</div>
+
+<!-- ════════════════ FRONT-END ════════════════ -->
+<div class="section section-blue">
+  <div class="section-label"><div class="dot"></div><h2>Front-End &mdash; Syntax Module</h2><hr></div>
+  <div class="grid">
+
+    <!-- Source Code -->
+    <div class="card card-blue" id="source-code" data-kw="source flash file import program input language">
+      <div class="card-head">
+        <div class="card-icon">📄</div>
+        <div><h3>Source Code</h3><small>.flash files &middot; entry point</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Flash programs use a hardware-oriented assembly language with struct definitions, memory-mapped variables, conditional execution, and instruction handlers.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-blue">Language Constructs</div>
+        <table class="t">
+          <tr><th>Construct</th><th>Syntax</th><th>Purpose</th></tr>
+          <tr><td><code>import</code></td><td><code>import "file.flash"</code></td><td>Transitive module inclusion (deduplicated)</td></tr>
+          <tr><td><code>const</code></td><td><code>const X = 8'd42</code></td><td>Named immediate with explicit bit width</td></tr>
+          <tr><td><code>var</code></td><td><code>var foo = meta[7:0]</code></td><td>Named memory-mapped variable</td></tr>
+          <tr><td><code>struct</code></td><td><code>struct S { f: 8; }</code></td><td>Bit-precise structure (no implicit padding)</td></tr>
+          <tr><td><code>union</code></td><td><code>union U { a: 8; b: 16; }</code></td><td>Overlapping fields at same offset</td></tr>
+          <tr><td><code>enum</code></td><td><code>enum E { A, B=3 }</code></td><td>Named constants with auto-increment</td></tr>
+          <tr><td><code>cond</code></td><td><code>cond c = f &amp; 0xF == 0x1</code></td><td>4-bit condition for conditional execution</td></tr>
+          <tr><td><code>handler</code></td><td><code>handler H { mov … }</code></td><td>Block of grouped instructions</td></tr>
+          <tr><td><code>flow</code></td><td><code>flow { mask … match … action H }</code></td><td>Packet classification → handler mapping</td></tr>
+          <tr><td><code>target</code></td><td><code>target S3</code></td><td>Hardware target declaration</td></tr>
+          <tr><td><code>flavour</code></td><td><code>flavour PTA_ACTION</code></td><td>Hardware sub-configuration</td></tr>
+        </table>
+        <div class="dt dt-blue">Immediate Formats (Verilog-style)</div>
+        <ul class="dl">
+          <li><code>8'd42</code> — 8-bit decimal</li>
+          <li><code>16'hFFFF</code> — 16-bit hex</li>
+          <li><code>4'b1010</code> — 4-bit binary</li>
+          <li><code>0xFF</code> — auto-sized hex</li>
+          <li>Underscores for readability: <code>0xFF_FF</code></li>
+        </ul>
+        <div class="dt dt-blue">Memory Selectors</div>
+        <div class="chip-row">
+          <span class="chip ch-blue">msg</span><span class="chip ch-green">cs</span><span class="chip ch-amber">meta</span><span class="chip ch-purple">out</span>
+        </div>
+        <p class="dd">Three addressing modes: range <code>meta[7:0]</code>, base+count <code>cs[0,16]</code>, typed <code>meta @ 0 : MyStruct</code>.</p>
+      </div></div>
+    </div>
+
+    <!-- Workspace -->
+    <div class="card card-blue" id="workspace" data-kw="workspace compilation unit import resolve module multi-file breadth-first">
+      <div class="card-head">
+        <div class="card-icon">📁</div>
+        <div><h3>Workspace</h3><small>mod.rs &middot; multi-file management</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Collects all source files via breadth-first import traversal, deduplicating by canonical path, to produce a sequence of CompilationUnits.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-blue">Key Structs</div>
+        <table class="t">
+          <tr><th>Struct</th><th>Fields</th><th>Role</th></tr>
+          <tr><td><code>Workspace</code></td><td>units, known_paths, report</td><td>Root container — all parsed files</td></tr>
+          <tr><td><code>CompilationUnit</code></td><td>path, rep_path, program, report</td><td>Single parsed file</td></tr>
+          <tr><td><code>WorkItem</code></td><td>canonical_path, rep_path</td><td>BFS queue entry</td></tr>
+        </table>
+        <div class="dt dt-blue">Import Resolution</div>
+        <ul class="dl">
+          <li>Start with seed file path from CLI</li>
+          <li>Canonicalize path, parse into AST</li>
+          <li>Extract <code>import</code> declarations</li>
+          <li>Resolve relative to importing file's directory</li>
+          <li>Skip already-processed paths (dedup by canonical path)</li>
+          <li>BFS until all transitive imports collected</li>
+        </ul>
+        <p class="dd">Handles diamond imports correctly — if A→B and A→C both import D, file D is parsed only once.</p>
+      </div></div>
+    </div>
+
+    <!-- Scanner -->
+    <div class="card card-blue" id="scanner" data-kw="scanner tokenizer token lexer keyword number string comment">
+      <div class="card-head">
+        <div class="card-icon">🔍</div>
+        <div><h3>Scanner</h3><small>scanner.rs &middot; tokenization</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Character-by-character lexer producing typed tokens with source spans. Recognizes 16 keywords, multi-radix numbers, strings, comments, and operators.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-blue">Token Categories (47 types)</div>
+        <p class="dd" style="margin-bottom:2px"><strong>Keywords</strong></p>
+        <div class="chip-row">
+          <span class="chip ch-blue">cond</span><span class="chip ch-blue">const</span><span class="chip ch-blue">handler</span><span class="chip ch-blue">if</span>
+          <span class="chip ch-blue">next</span><span class="chip ch-blue">import</span><span class="chip ch-blue">struct</span><span class="chip ch-blue">union</span>
+          <span class="chip ch-blue">var</span><span class="chip ch-blue">flavour</span><span class="chip ch-blue">target</span><span class="chip ch-blue">flow</span>
+          <span class="chip ch-blue">mask</span><span class="chip ch-blue">match</span><span class="chip ch-blue">action</span><span class="chip ch-blue">enum</span>
+        </div>
+        <p class="dd" style="margin-bottom:2px"><strong>Operators &amp; Punctuation</strong></p>
+        <div class="chip-row">
+          <span class="chip ch-amber">&amp;</span><span class="chip ch-amber">@</span><span class="chip ch-amber">:</span><span class="chip ch-amber">::</span>
+          <span class="chip ch-amber">,</span><span class="chip ch-amber">--</span><span class="chip ch-amber">.</span><span class="chip ch-amber">=</span>
+          <span class="chip ch-amber">==</span><span class="chip ch-amber">#</span><span class="chip ch-amber">-</span><span class="chip ch-amber">;</span>
+          <span class="chip ch-amber">/</span><span class="chip ch-amber">'</span>
+          <span class="chip ch-amber">( )</span><span class="chip ch-amber">{ }</span><span class="chip ch-amber">[ ]</span>
+        </div>
+        <p class="dd" style="margin-bottom:2px"><strong>Values</strong></p>
+        <div class="chip-row">
+          <span class="chip ch-green">Word</span><span class="chip ch-green">Number</span><span class="chip ch-green">String</span>
+          <span class="chip ch-green">Glyph</span><span class="chip ch-green">Comment</span><span class="chip ch-green">Newline</span><span class="chip ch-green">EOF</span>
+        </div>
+        <div class="dt dt-blue">Design Decisions</div>
+        <ul class="dl">
+          <li><strong>Newline-sensitive</strong> — newlines are tokens, significant in handler bodies</li>
+          <li><strong>Multi-radix</strong> — 0x hex, 0o octal, 0b binary, decimal; underscore separators</li>
+          <li><strong>SourceReader</strong> — tracks line/col with single-char lookahead</li>
+          <li><strong>Error recovery</strong> — skips to newline or <code>}</code> on error</li>
+        </ul>
+      </div></div>
+    </div>
+
+    <!-- Parser -->
+    <div class="card card-blue" id="parser" data-kw="parser recursive descent grammar parse instruction operand expression">
+      <div class="card-head">
+        <div class="card-icon">🌳</div>
+        <div><h3>Parser</h3><small>parser.rs &middot; recursive descent</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Hand-written recursive descent parser with single-token lookahead, newline sensitivity, and error recovery. Transforms the token stream into a typed AST.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-blue">Parser State</div>
+        <table class="t">
+          <tr><th>Field</th><th>Type</th><th>Purpose</th></tr>
+          <tr><td><code>scanner</code></td><td>Scanner</td><td>Token source</td></tr>
+          <tr><td><code>ignore_newlines</code></td><td>bool</td><td>Off in structs, on in handlers</td></tr>
+          <tr><td><code>buffered_token</code></td><td>Option&lt;Token&gt;</td><td>Single-token lookahead</td></tr>
+          <tr><td><code>report</code></td><td>Vec&lt;ReportItem&gt;</td><td>Parse errors and warnings</td></tr>
+        </table>
+        <div class="dt dt-blue">Key Grammar Rules</div>
+        <table class="t">
+          <tr><th>Function</th><th>Grammar</th></tr>
+          <tr><td><code>parse_program()</code></td><td><code>program_item*</code></td></tr>
+          <tr><td><code>parse_handler_def()</code></td><td><code>handler IDENT { handler_item* }</code></td></tr>
+          <tr><td><code>parse_instruction()</code></td><td><code>OPCODE operand* (if condition)?</code></td></tr>
+          <tr><td><code>parse_struct_def()</code></td><td><code>struct IDENT? { member* }</code></td></tr>
+          <tr><td><code>parse_cond_expr()</code></td><td><code>base &amp; mask == value</code></td></tr>
+          <tr><td><code>parse_immediate()</code></td><td><code>size'radix_digits</code></td></tr>
+          <tr><td><code>parse_flow_decl()</code></td><td><code>flow { mask M match V action A }</code></td></tr>
+          <tr><td><code>parse_enum_def()</code></td><td><code>enum IDENT { variant* }</code></td></tr>
+        </table>
+        <div class="dt dt-blue">Error Recovery</div>
+        <ul class="dl">
+          <li><code>recover_to_next_program_item()</code> — skip to next keyword</li>
+          <li><code>recover_past_current_instruction()</code> — skip to newline or brace</li>
+        </ul>
+      </div></div>
+    </div>
+
+    <!-- AST -->
+    <div class="card card-blue" id="ast" data-kw="ast abstract syntax tree node program item struct union handler instruction operand">
+      <div class="card-head">
+        <div class="card-icon">📐</div>
+        <div><h3>Abstract Syntax Tree</h3><small>ast.rs &middot; 11 node types</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Strongly-typed tree representing the full program. Every node carries a source <code>Span</code> for precise error messages. Supports 11 top-level declaration types.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-blue">ProgramItem Variants</div>
+        <table class="t">
+          <tr><th>Variant</th><th>Struct</th><th>Description</th></tr>
+          <tr><td><code>ConstDef</code></td><td>name, value</td><td>Named constant with explicit bit width</td></tr>
+          <tr><td><code>EnumDef</code></td><td>name, variants[]</td><td>Enum with auto-incrementing values</td></tr>
+          <tr><td><code>CondDef</code></td><td>name, value</td><td>Symbolic condition expression</td></tr>
+          <tr><td><code>ObjectDef</code></td><td>name, value</td><td>Memory-mapped variable</td></tr>
+          <tr><td><code>StructDef</code></td><td>name?, members[]</td><td>Named or anonymous struct</td></tr>
+          <tr><td><code>UnionDef</code></td><td>name?, members[]</td><td>Named or anonymous union</td></tr>
+          <tr><td><code>HandlerDef</code></td><td>name, items[]</td><td>Instruction handler block</td></tr>
+          <tr><td><code>FlowDecl</code></td><td>mask, match, action</td><td>Packet classification rule</td></tr>
+          <tr><td><code>ImportDecl</code></td><td>path</td><td>File import</td></tr>
+          <tr><td><code>TargetDecl</code></td><td>kind</td><td>Hardware target (S3)</td></tr>
+          <tr><td><code>FlavourDecl</code></td><td>flavour</td><td>Hardware sub-configuration</td></tr>
+        </table>
+        <div class="dt dt-blue">Value Types</div>
+        <div class="chip-row">
+          <span class="chip ch-blue">Ident</span><span class="chip ch-green">Int</span><span class="chip ch-amber">Immediate</span>
+          <span class="chip ch-purple">Path</span><span class="chip ch-red">Addr</span><span class="chip ch-cyan">Expr</span><span class="chip ch-pink">CondExpr</span>
+        </div>
+        <p class="dd"><code>Instruction</code> = opcode + operands (<code>Op::Addr</code>, <code>Op::Ref</code>, <code>Op::Imm</code>) + optional condition. Handler items include <code>GroupBreak</code> (<code>--</code>) and <code>Next</code> boundaries.</p>
+      </div></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════ SEMANTICS ════════════════ -->
+<div class="section section-green">
+  <div class="section-label"><div class="dot"></div><h2>Middle — Semantics Module</h2><hr></div>
+  <div class="grid">
+
+    <!-- Model -->
+    <div class="card card-green" id="model" data-kw="model analyzer semantic analysis validation symbol table constants enums types objects conditions handlers flows">
+      <div class="card-head">
+        <div class="card-icon">🧠</div>
+        <div><h3>Semantic Analyzer</h3><small>model.rs &middot; 7-stage pipeline</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Builds the intermediate representation through 7 sequential analysis stages. Validates correctness at each step and builds a symbol table of constants, types, objects, conditions, and handlers.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-green">Model Fields</div>
+        <table class="t">
+          <tr><th>Field</th><th>Type</th><th>Purpose</th></tr>
+          <tr><td><code>constants</code></td><td>HashMap&lt;String, Definition&lt;Imm&gt;&gt;</td><td>Named constants &amp; enum values</td></tr>
+          <tr><td><code>layouts</code></td><td>HashMap&lt;String, ObjectLayout&gt;</td><td>Struct/union memory layouts</td></tr>
+          <tr><td><code>objects</code></td><td>HashMap&lt;String, Definition&lt;Object&gt;&gt;</td><td>Memory-mapped variables</td></tr>
+          <tr><td><code>conditions</code></td><td>HashMap&lt;String, Definition&lt;Condition&gt;&gt;</td><td>Symbolic conditions</td></tr>
+          <tr><td><code>handlers</code></td><td>HashMap&lt;String, Definition&lt;Handler&gt;&gt;</td><td>Compiled handlers with groups</td></tr>
+          <tr><td><code>flows</code></td><td>Vec&lt;Flow&gt;</td><td>Packet classification rules</td></tr>
+          <tr><td><code>target</code></td><td>&amp;'static Target</td><td>Hardware configuration</td></tr>
+          <tr><td><code>flavour</code></td><td>Option&lt;FlavourDecl&gt;</td><td>Selected hardware flavour</td></tr>
+        </table>
+        <div class="dt dt-green">7 Analysis Stages</div>
+        <table class="t">
+          <tr><th>#</th><th>Stage</th><th>Action</th></tr>
+          <tr><td>1</td><td><code>process_constant_definitions</code></td><td>Evaluate const declarations, check duplicates</td></tr>
+          <tr><td>2</td><td><code>process_enum_definitions</code></td><td>Expand enums to qualified constants (<code>E::V</code>)</td></tr>
+          <tr><td>3</td><td><code>process_type_definitions</code></td><td>Compute recursive struct/union layouts, detect cycles</td></tr>
+          <tr><td>4</td><td><code>process_object_definitions</code></td><td>Create objects with layout, check memory overlap</td></tr>
+          <tr><td>5</td><td><code>process_condition_definitions</code></td><td>Validate: 4-bit aligned, 4-bit wide, meta-only</td></tr>
+          <tr><td>6</td><td><code>process_handlers</code></td><td>Validate instructions, resolve operands, group &amp; schedule</td></tr>
+          <tr><td>7</td><td><code>process_flows</code></td><td>Validate handler refs, resolve mask/match values</td></tr>
+        </table>
+        <p class="dd">Every model artifact is wrapped in <code>Definition&lt;T&gt;</code> adding <code>name</code>, <code>source_file</code>, and <code>span</code> for precise error messages.</p>
+      </div></div>
+    </div>
+
+    <!-- Scheduler -->
+    <div class="card card-green" id="scheduler" data-kw="scheduler grouping dependency graph RAW load latency auto manual NOP padding">
+      <div class="card-head">
+        <div class="card-icon">📋</div>
+        <div><h3>Instruction Scheduler</h3><small>model.rs &middot; grouping &amp; dependencies</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Organizes instructions into execution groups respecting hardware constraints. Builds a dependency graph, performs list scheduling, and pads groups with NOPs.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-green">Grouping Modes</div>
+        <table class="t">
+          <tr><th>Mode</th><th>Trigger</th><th>Mechanism</th></tr>
+          <tr><td>Manual</td><td><code>--</code> separators in source</td><td>User places group boundaries explicitly</td></tr>
+          <tr><td>Automatic</td><td>No separators</td><td>Compiler builds dependency graph and schedules</td></tr>
+        </table>
+        <div class="dt dt-green">Dependency Graph</div>
+        <p class="dd">Nodes = instructions. Edges = RAW (Read-After-Write) data dependencies detected by checking if source operands overlap destinations via bit-range intersection.</p>
+        <div class="dt dt-green">Constraints</div>
+        <ul class="dl">
+          <li>Max <strong>8 ALU</strong> instructions per group</li>
+          <li>Max <strong>7 custom</strong> instructions per group</li>
+          <li>Max <strong>1 load/store</strong> per group</li>
+          <li><strong>Load latency</strong>: 5 groups between load and consumer</li>
+          <li><strong>NOP padding</strong>: groups padded to exactly 8 ALU slots</li>
+          <li>CMP destinations must be exactly 3 bits</li>
+          <li>All operand widths &le; 64 bits</li>
+        </ul>
+      </div></div>
+    </div>
+
+    <!-- Memory -->
+    <div class="card card-green" id="memory" data-kw="memory chunk memtype message cs meta output interval overlap alignment">
+      <div class="card-head">
+        <div class="card-icon">💾</div>
+        <div><h3>Memory Model</h3><small>memory.rs &middot; types, chunks, overlap</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Defines four memory regions, enforces alignment constraints, and uses an IntervalMap for efficient overlap detection between objects.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-green">Memory Regions</div>
+        <table class="t">
+          <tr><th>Type</th><th>Selector</th><th>Align</th><th>Purpose</th></tr>
+          <tr><td>Message</td><td><code>msg</code></td><td>8-bit</td><td>Input packet buffer</td></tr>
+          <tr><td>CS</td><td><code>cs</code></td><td>8-bit</td><td>Context store</td></tr>
+          <tr><td>Meta</td><td><code>meta</code></td><td>4-bit</td><td>HW + SW metadata</td></tr>
+          <tr><td>Output</td><td><code>out</code></td><td>4-bit</td><td>Output vector</td></tr>
+        </table>
+        <div class="dt dt-green">Key Structures</div>
+        <table class="t">
+          <tr><th>Struct</th><th>Purpose</th></tr>
+          <tr><td><code>Chunk</code></td><td>Contiguous bit range: mem_type + low_bit + high_bit</td></tr>
+          <tr><td><code>Memory</code></td><td>Full descriptor: type + bit_size + access_align</td></tr>
+          <tr><td><code>IntervalMap&lt;T&gt;</code></td><td>Sorted intervals with binary-search overlap detection</td></tr>
+          <tr><td><code>ObjectLayout</code></td><td>Recursive struct layout with drill-down into nested fields</td></tr>
+        </table>
+      </div></div>
+    </div>
+
+    <!-- Code IR -->
+    <div class="card card-green" id="code-ir" data-kw="code handler instruction group arg imm condition flow intermediate representation">
+      <div class="card-head">
+        <div class="card-icon">📝</div>
+        <div><h3>Code IR</h3><small>code.rs &middot; instruction model</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Intermediate representation: Handler → InstructionGroup → Instruction → Arg, ready for binary encoding by the code generator.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-green">Hierarchy</div>
+        <div class="mono-block">Handler
+  ├── name: String
+  └── instr_groups: Vec&lt;InstructionGroup&gt;
+        ├── alu_instrs: Vec&lt;Definition&lt;Instruction&gt;&gt;
+        ├── custom_instrs: Vec&lt;…&gt;
+        └── load_instrs: Vec&lt;…&gt;
+              ├── operation: &amp;'static target::Instruction
+              ├── args: Vec&lt;Definition&lt;Arg&gt;&gt;
+              ├── mem_refs: Vec&lt;Definition&lt;Arg&gt;&gt;
+              └── condition: Option&lt;Condition&gt;</div>
+        <div class="dt dt-green">Operand Types</div>
+        <table class="t">
+          <tr><th>Variant</th><th>Content</th><th>Example</th></tr>
+          <tr><td><code>Arg::Addr(Chunk)</code></td><td>Memory range</td><td><code>meta[7:0]</code></td></tr>
+          <tr><td><code>Arg::Imm(Imm)</code></td><td>Sized immediate</td><td><code>8'd42</code></td></tr>
+        </table>
+        <p class="dd"><code>Condition { base: Chunk, mask: u8, match_value: u8 }</code> — 4-bit condition from meta memory for conditional execution.</p>
+      </div></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════ CODEGEN ════════════════ -->
+<div class="section section-amber">
+  <div class="section-label"><div class="dot"></div><h2>Back-End — Codegen Module</h2><hr></div>
+  <div class="grid">
+
+    <!-- Encoder -->
+    <div class="card card-amber" id="encoder" data-kw="encoder S3Encoder encode binary instruction group ALU load store composer operand">
+      <div class="card-head">
+        <div class="card-icon">⚙️</div>
+        <div><h3>S3 Encoder</h3><small>encoder.rs &middot; binary encoding</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Transforms the IR into binary S3 machine code. Encodes each instruction group as a 2-byte descriptor header followed by packed ALU and load/store instruction bytes.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-amber">Encoding Pipeline</div>
+        <ul class="dl">
+          <li><code>encode(handler)</code> — iterate instruction groups</li>
+          <li><code>encode_instr_group()</code> — write 2B descriptor + instruction bytes</li>
+          <li><code>alu_instruction_encoding()</code> → 14-byte encoding</li>
+          <li><code>load/store_instruction_encoding()</code> → 10-byte encoding</li>
+          <li><code>condition_encoding()</code> → 14-bit condition</li>
+          <li><code>process_flows()</code> → TCAM entries</li>
+          <li><code>write_combined_json()</code> → JSON output with metadata</li>
+        </ul>
+        <div class="dt dt-amber">ALU Instruction (14 bytes = 112 bits)</div>
+        <div class="enc">
+          <div class="enc-f e-type" style="flex:4">Type<span>4b</span></div>
+          <div class="enc-f e-func" style="flex:6">Func<span>6b</span></div>
+          <div class="enc-f e-src" style="flex:22">Src0<span>22b</span></div>
+          <div class="enc-f e-src" style="flex:22">Src1<span>22b</span></div>
+          <div class="enc-f e-dst" style="flex:22">Dest<span>22b</span></div>
+          <div class="enc-f e-src" style="flex:22">Src2<span>22b</span></div>
+          <div class="enc-f e-cond" style="flex:14">Cond<span>14b</span></div>
+        </div>
+        <div class="dt dt-amber">Load / Store (10 bytes = 80 bits)</div>
+        <div class="enc">
+          <div class="enc-f e-type" style="flex:4">Type<span>4b</span></div>
+          <div class="enc-f e-rsvd" style="flex:6">Rsvd<span>6b</span></div>
+          <div class="enc-f e-src" style="flex:16">Base<span>16b</span></div>
+          <div class="enc-f e-src" style="flex:16">Offset<span>16b</span></div>
+          <div class="enc-f e-dst" style="flex:16">Data<span>16b</span></div>
+          <div class="enc-f e-cond" style="flex:14">Cond<span>14b</span></div>
+          <div class="enc-f e-rsvd" style="flex:8">Pad<span>8b</span></div>
+        </div>
+        <div class="dt dt-amber">Composer Utility</div>
+        <p class="dd"><code>Composer::paste(bits, count, low_bit)</code> — places arbitrary bit-width fields at arbitrary offsets into a byte array, handling cross-byte alignment. The core primitive for all encoding.</p>
+      </div></div>
+    </div>
+
+    <!-- Operand Encoding -->
+    <div class="card card-amber" id="src-encoding" data-kw="operand encoding immediate chunk address SrcOpEncoding slot extension">
+      <div class="card-head">
+        <div class="card-icon">🔢</div>
+        <div><h3>Operand Encoding</h3><small>encoder.rs &middot; SrcOpEncoding</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Each ALU instruction has 3 source operand slots (22 bits each). Memory addresses and immediates are encoded, with large immediates spanning multiple slots.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-amber">Operand Slot (22 bits)</div>
+        <div class="enc">
+          <div class="enc-f e-type" style="flex:4">DataType<span>4b</span></div>
+          <div class="enc-f e-src" style="flex:6">Size<span>6b</span></div>
+          <div class="enc-f e-dst" style="flex:12">Addr/Val<span>12b</span></div>
+        </div>
+        <div class="dt dt-amber">Data Type Codes</div>
+        <table class="t">
+          <tr><th>Code</th><th>Type</th></tr>
+          <tr><td><code>0b0000</code></td><td>Message</td></tr>
+          <tr><td><code>0b0001</code></td><td>Context Store</td></tr>
+          <tr><td><code>0b0010</code></td><td>Metadata</td></tr>
+          <tr><td><code>0b0100</code></td><td>Immediate</td></tr>
+          <tr><td><code>0b0111</code></td><td>Output</td></tr>
+          <tr><td><code>0b1000</code></td><td>Sequence (extended immediate)</td></tr>
+        </table>
+        <div class="dt dt-amber">Immediate Extension</div>
+        <ul class="dl">
+          <li><strong>≤12 bits</strong> — 1 slot</li>
+          <li><strong>13–24 bits</strong> — 2 slots (src0 = low 12 + type, src1 = high 12)</li>
+          <li><strong>25–36 bits</strong> — 3 slots (all three used)</li>
+          <li><strong>&gt;36 bits</strong> — error, exceeds capacity</li>
+        </ul>
+      </div></div>
+    </div>
+
+    <!-- Artifact -->
+    <div class="card card-amber" id="artifact" data-kw="artifact output json binary bytecode handler compiled code">
+      <div class="card-head">
+        <div class="card-icon">📦</div>
+        <div><h3>Artifact &amp; Output</h3><small>artifact.rs &middot; compiled output</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Artifact is a dictionary of compiled handler bytecodes. The encoder also produces a JSON file with instruction memory, TCAM configs, and metadata.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-amber">Artifact Structure</div>
+        <div class="mono-block">Artifact
+  └── handlers: HashMap&lt;String, Vec&lt;u8&gt;&gt;
+        ├── "handler_A" → [0x80, 0x01, …]
+        └── "handler_B" → [0x80, 0x03, …]</div>
+        <div class="dt dt-amber">JSON Output</div>
+        <div class="mono-block">{
+  "metadata": { "version", "timestamp", "signature" },
+  "target": {
+    "flavour": {
+      "instructions": [{ flow_name, index, mem_group, alu_instructions, ls_instruction }],
+      "tcam": [{ index, mask, match, num_inst_grp, inst_mem_addr }]
+    }
+  }
+}</div>
+        <div class="dt dt-amber">TCAM Entry (CSR)</div>
+        <p class="dd">Packs to 45-byte (353-bit) register: <code>valid[352] | mask[351:184] | match[183:16] | num_groups[15:8] | mem_addr[7:0]</code>.</p>
+      </div></div>
+    </div>
+
+    <!-- Constants -->
+    <div class="card card-amber" id="constants" data-kw="constants encoding opcodes instruction type ALU load store group descriptor conditioner">
+      <div class="card-head">
+        <div class="card-icon">🔧</div>
+        <div><h3>Encoding Constants</h3><small>constants.rs &middot; bit fields</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">All magic numbers for S3 encoding: instruction type codes, field widths, bit positions, group descriptor flags, and ALU function codes.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-amber">Instruction Types</div>
+        <table class="t">
+          <tr><th>Constant</th><th>Value</th><th>Meaning</th></tr>
+          <tr><td><code>INSTR_TYPE_ALU</code></td><td><code>0b0000</code></td><td>ALU instruction</td></tr>
+          <tr><td><code>INSTR_TYPE_LOAD</code></td><td><code>0b0010</code></td><td>Memory load</td></tr>
+          <tr><td><code>INSTR_TYPE_STORE</code></td><td><code>0b0011</code></td><td>Memory store</td></tr>
+          <tr><td><code>INSTR_TYPE_CUSTOM</code></td><td><code>0b0100</code></td><td>Custom instruction</td></tr>
+        </table>
+        <div class="dt dt-amber">Group Descriptor (16 bits)</div>
+        <div class="enc">
+          <div class="enc-f e-type" style="flex:1">V<span>1</span></div>
+          <div class="enc-f e-func" style="flex:1">L<span>1</span></div>
+          <div class="enc-f e-cond" style="flex:1">H<span>1</span></div>
+          <div class="enc-f e-rsvd" style="flex:5">Rsvd<span>5</span></div>
+          <div class="enc-f e-src" style="flex:4">ALU#<span>4</span></div>
+          <div class="enc-f e-src" style="flex:3">Cust#<span>3</span></div>
+          <div class="enc-f e-dst" style="flex:1">LS<span>1</span></div>
+        </div>
+        <p class="dd">V = Valid, L = Last group, H = Halt. ALU# = count, Cust# = custom count, LS = load/store present.</p>
+        <div class="dt dt-amber">Key Sizes</div>
+        <table class="t">
+          <tr><th>Constant</th><th>Value</th></tr>
+          <tr><td><code>ALU_INSTRUCTION_SIZE</code></td><td>14 bytes</td></tr>
+          <tr><td><code>LS_INSTRUCTION_SIZE</code></td><td>10 bytes</td></tr>
+          <tr><td><code>ALU_OPERAND_FIELD_WIDTH</code></td><td>22 bits</td></tr>
+          <tr><td><code>LOAD_LATENCY_GROUPS</code></td><td>5 cycles</td></tr>
+        </table>
+      </div></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════ TARGET & INFRA ════════════════ -->
+<div class="section section-red">
+  <div class="section-label"><div class="dot"></div><h2>Target Hardware &amp; Infrastructure</h2><hr></div>
+  <div class="grid">
+
+    <!-- Target -->
+    <div class="card card-red" id="target" data-kw="target S3 processor instruction set ALU load store nop mov add sub cmp flavour">
+      <div class="card-head">
+        <div class="card-icon">🎯</div>
+        <div><h3>S3 Target</h3><small>target.rs &middot; hardware ISA</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Defines the S3 flow processor's instruction set (19 ALU + 2 LS), memory layout, constraints, and 8 hardware flavours from JSON configuration.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-red">Instruction Set (21 instructions)</div>
+        <table class="t">
+          <tr><th>Category</th><th>Opcodes</th></tr>
+          <tr><td>ALU — Data</td><td><code>mov</code> <code>movm</code> <code>add</code> <code>adds</code> <code>sub</code> <code>subs</code> <code>nop</code></td></tr>
+          <tr><td>ALU — Logic</td><td><code>or</code> <code>and</code> <code>xor</code> <code>not</code></td></tr>
+          <tr><td>ALU — Shift</td><td><code>sll</code> <code>srl</code></td></tr>
+          <tr><td>ALU — Compare</td><td><code>cmp</code> <code>cmpm</code> <code>rngcmp</code> <code>wrngcmp</code> <code>drngcmp</code> <code>sumcmp</code></td></tr>
+          <tr><td>Load / Store</td><td><code>load</code> <code>store</code></td></tr>
+        </table>
+        <div class="dt dt-red">Hardware Constraints</div>
+        <table class="t">
+          <tr><th>Constraint</th><th>Value</th></tr>
+          <tr><td>Max ALU / group</td><td>8</td></tr>
+          <tr><td>Max custom / group</td><td>7</td></tr>
+          <tr><td>Max load-store / group</td><td>1</td></tr>
+          <tr><td>Max operand width</td><td>64 bits</td></tr>
+          <tr><td>Condition width</td><td>4 bits</td></tr>
+          <tr><td>Issue slots</td><td>8</td></tr>
+        </table>
+        <div class="dt dt-red">8 Flavours</div>
+        <table class="t">
+          <tr><th>Flavour</th><th>Cores</th><th>TCAM</th><th>Instr Mem</th><th>Key Feature</th></tr>
+          <tr><td><code>SGE_KEYGEN</code></td><td>4</td><td>32</td><td>128</td><td>1 KB HW metadata</td></tr>
+          <tr><td><code>SGE_ACTION</code></td><td>4</td><td>96</td><td>256</td><td>848-bit output</td></tr>
+          <tr><td><code>PTA_KEYGEN</code></td><td>4</td><td>16</td><td>96</td><td>Key-as-output</td></tr>
+          <tr><td><code>PTA_ACTION</code></td><td>4</td><td>32</td><td>128</td><td>Data memory access</td></tr>
+          <tr><td><code>PTA_ACU_KEYGEN</code></td><td>2</td><td>16</td><td>96</td><td>Reduced cores</td></tr>
+          <tr><td><code>PTA_ACU_ACTION</code></td><td>2</td><td>24</td><td>128</td><td>720-bit output</td></tr>
+          <tr><td><code>RNIC_KEYGEN</code></td><td>1</td><td>32</td><td>32</td><td>Custom instructions</td></tr>
+          <tr><td><code>RNIC_ACTION</code></td><td>1</td><td>64</td><td>64</td><td>TCAM index output</td></tr>
+        </table>
+      </div></div>
+    </div>
+
+    <!-- Common -->
+    <div class="card card-purple" id="common" data-kw="common location span spanned note report error warning info">
+      <div class="card-head">
+        <div class="card-icon">🧰</div>
+        <div><h3>Common Infrastructure</h3><small>common.rs &middot; spans, errors</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Foundation types shared across all compiler phases: source locations, spans, diagnostic notes, and the three-level reporting system.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-purple">Core Types</div>
+        <table class="t">
+          <tr><th>Type</th><th>Fields</th><th>Purpose</th></tr>
+          <tr><td><code>Location</code></td><td>line, col (u32)</td><td>1-based source position</td></tr>
+          <tr><td><code>Span</code></td><td>start, end</td><td>Range of source characters</td></tr>
+          <tr><td><code>Spanned</code></td><td>trait</td><td>Anything with source location</td></tr>
+          <tr><td><code>Note</code></td><td>span, message</td><td>Diagnostic with position</td></tr>
+          <tr><td><code>ReportItem</code></td><td>Error / Warning / Info</td><td>Classified diagnostic</td></tr>
+          <tr><td><code>Either&lt;T,U&gt;</code></td><td>Left, Right</td><td>Sum type</td></tr>
+        </table>
+        <p class="dd">Each stage collects <code>ReportItem</code>s. After each stage, the report is printed. Any <code>Error</code> halts compilation. Format: <code>file:line:col: error: message</code>.</p>
+      </div></div>
+    </div>
+
+    <!-- Driver -->
+    <div class="card card-purple" id="driver" data-kw="main driver lib process workspace analyze encode pipeline">
+      <div class="card-head">
+        <div class="card-icon">🚀</div>
+        <div><h3>Driver</h3><small>main.rs + lib.rs &middot; orchestration</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Entry point creates a Workspace from the CLI argument. lib.rs orchestrates the full pipeline: <code>analyze()</code> builds the Model, then <code>encode()</code> produces the Artifact.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-purple">Execution Flow</div>
+        <div class="mono-block">main.rs
+  1. Parse CLI args → filename
+  2. Workspace::new(filename) → parse all files
+  3. Check workspace errors → exit(1) if any
+  4. process_workspace(workspace)
+
+lib.rs — process_workspace()
+  1. Print per-unit parse reports
+  2. analyze(workspace) → Model (7 stages)
+  3. encode(model) → Artifact + JSON
+
+lib.rs — analyze()
+  Model::build_model() then per unit:
+    → process_constants → process_enums
+    → process_types    → process_objects
+    → process_conditions
+    → process_handlers → process_flows
+
+lib.rs — encode()
+  S3Encoder::new() → encode each handler
+    → process_flows → write_combined_json</div>
+        <p class="dd">The <code>run_analysis_stage!</code> macro wraps each stage: iterates units, calls the stage, checks for errors, prints reports, aborts early if needed.</p>
+      </div></div>
+    </div>
+
+    <!-- Tooling -->
+    <div class="card card-cyan" id="tooling" data-kw="migration tool c header struct python script build makefile test">
+      <div class="card-head">
+        <div class="card-icon">🔨</div>
+        <div><h3>Tooling &amp; Build</h3><small>scripts/ &middot; Makefile &middot; tests/</small></div>
+        <span class="card-chevron">▾</span>
+      </div>
+      <div class="card-body">Supporting ecosystem: C/C++ header migration scripts, Makefile for FunSDK deployment, integration tests, and hardware configuration files.</div>
+      <div class="card-detail"><div class="card-detail-inner">
+        <div class="dt dt-cyan">Migration Scripts</div>
+        <table class="t">
+          <tr><th>Script</th><th>Purpose</th></tr>
+          <tr><td><code>c_header_to_flash.py</code></td><td>C/C++ structs → Flash (auto union detection, nested deps)</td></tr>
+          <tr><td><code>flash_to_c_header.py</code></td><td>Flash structs → C/C++ headers</td></tr>
+        </table>
+        <div class="dt dt-cyan">Build (Makefile)</div>
+        <table class="t">
+          <tr><th>Target</th><th>Action</th></tr>
+          <tr><td><code>make</code></td><td><code>cargo build --release</code></td></tr>
+          <tr><td><code>make test</code></td><td><code>cargo test</code></td></tr>
+          <tr><td><code>make install</code></td><td>Deploy binary + config to <code>$SDKDIR/bin/</code></td></tr>
+          <tr><td><code>make clean</code></td><td><code>cargo clean</code></td></tr>
+        </table>
+        <div class="dt dt-cyan">Integration Tests</div>
+        <ul class="dl">
+          <li><strong>Diamond import</strong> — A→B→D, A→C→D: D parsed once</li>
+          <li><strong>Broken import</strong> — missing file error handling</li>
+          <li><strong>Cross-directory</strong> — relative path resolution with <code>../</code></li>
+        </ul>
+        <p class="dd"><code>configs/s3_flavours.json</code> defines all 8 flavour specs: memory widths, TCAM depth, instruction memory, core counts.</p>
+      </div></div>
+    </div>
+
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<footer>
+  <p>Flash Assembler &middot; S3 Flow Processor &middot; Click any card to expand &middot; <kbd>/</kbd> search &middot; <kbd>Esc</kbd> close</p>
+</footer>
+
+<script>
+// Card expand/collapse
+document.querySelectorAll('.card').forEach(card => {
+  card.addEventListener('click', e => {
+    if (card.classList.contains('expanded') && !e.target.closest('.card-head')) return;
+    const was = card.classList.contains('expanded');
+    document.querySelectorAll('.card.expanded').forEach(c => c.classList.remove('expanded'));
+    if (!was) {
+      card.classList.add('expanded');
+      requestAnimationFrame(() => card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+    }
+  });
+});
+
+// Pipeline clicks
+document.querySelectorAll('.pipe-node').forEach(node => {
+  node.addEventListener('click', () => {
+    const card = document.getElementById(node.dataset.target);
+    if (!card) return;
+    document.querySelectorAll('.card.expanded').forEach(c => c.classList.remove('expanded'));
+    card.classList.add('expanded');
+    document.querySelectorAll('.pipe-node').forEach(n => n.classList.remove('active'));
+    node.classList.add('active');
+    requestAnimationFrame(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  });
+});
+
+// Search
+const search = document.getElementById('searchInput');
+search.addEventListener('input', () => {
+  const q = search.value.toLowerCase().trim();
+  document.querySelectorAll('.card').forEach(card => {
+    if (!q) { card.classList.remove('hidden'); return; }
+    const txt = (card.textContent + ' ' + (card.dataset.kw || '')).toLowerCase();
+    card.classList.toggle('hidden', !txt.includes(q));
+  });
+});
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== search) { e.preventDefault(); search.focus(); }
+  if (e.key === 'Escape') {
+    search.value = ''; search.dispatchEvent(new Event('input')); search.blur();
+    document.querySelectorAll('.card.expanded').forEach(c => c.classList.remove('expanded'));
+    document.querySelectorAll('.pipe-node').forEach(n => n.classList.remove('active'));
+  }
+});
+</script>
+</body>
+</html>
