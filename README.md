@@ -22,3 +22,4 @@ Shared documents, specs, presentations, and investigation notes.
 | Document | Description |
 |----------|-------------|
 | [ADO 3088420 — COMe PXE Boot](investigations/3088420_come_pxe_boot.md) | COMe not reachable after PXE boot analysis |
+| [ADO 2568748 — BAM ETP Cmdlist Resource Check](investigations/2568748_bam_alloc_etp_cmdlist_analysis.md) | BAM ETP cmdlist allocation paths missing xmt_res_nu resource checks in TCP control-plane |
