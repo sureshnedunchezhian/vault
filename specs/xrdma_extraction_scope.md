@@ -26,9 +26,12 @@ After the move:
 - XStore/csnetlib uses XRDMA via repo-local includes (no SDK round-trip).
 
 ## Why
+- **Ownership transfer**: The XRDMA module ownership is moving to the
+  Storage/XStore team. The code should live in the repo they own and
+  develop in (Storage-xDPU-XStore).
 - Decouple XRDMA lifecycle (development, review, release) from FunOS.
-- Enforce a stable public API: today several FunOS files reach directly into
-  XRDMA internals, which blocks independent evolution of the ULP.
+- Enforce a stable API boundary: today several FunOS files reach directly
+  into XRDMA internals, which blocks independent evolution of the ULP.
 - Co-locate XRDMA with its primary consumer (XStore/csnetlib), which already
   lives in Storage-xDPU-XStore and uses XRDMA exclusively through its public
   header.
