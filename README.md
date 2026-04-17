@@ -11,7 +11,6 @@ Shared documents, specs, presentations, and investigation notes.
 | [TCP VP Selection](specs/tcp_vp_selection.md) | TCP VP selection from worker pool |
 | [VFP Proxy Protocol V2 Spec](specs/vfp_proxy_protocol_v2_spec.md) | VFP Proxy Protocol V2 design specification |
 | [XRDMA Extraction Scope](specs/xrdma_extraction_scope.md) | Scope of work to move XRDMA ULP out of FunOS into a standalone repo |
-| [XRDMA SDK Promotion Proposal](specs/xrdma_sdk_promotion_proposal.md) | Minimal API promotion proposal for xrdma extraction |
 | [Storage Disaggregation](specs/storage_disaggregation.html) ([view](https://sureshnedunchezhian.github.io/vault/specs/storage_disaggregation.html)) | Storage disaggregation architecture — current vs proposed model with DPU cost analysis |
 
 ## Presentations
