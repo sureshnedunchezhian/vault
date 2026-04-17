@@ -1,184 +1,141 @@
 # SDK Promotion Proposal for XRDMA Extraction
 
-## Context
-XRDMA code in `networking/rdma/ulp/xrdma/` uses 14 FunOS-internal headers
-that are not in FunSDK today. For XRDMA to compile in Storage-xDPU-XStore,
-these dependencies must be resolved. The goal is **minimal promotion** —
-only expose what XRDMA actually needs, no internal leaks.
+## Goal
+Minimal SDK promotion — expose only what XRDMA needs, no internal headers
+leaked. No file with `internal` in its name goes into SDK.
 
-**Excluded from this analysis** (handled separately in storage repo):
-`utils/common/pervp_stats.h`, `props_bridges/sock_bridge.h`.
+**Excluded** (handled in storage repo): `pervp_stats.h`, `sock_bridge.h`.
 
 ---
 
-## Category 1: Headers to promote to SDK (as-is or near as-is)
+## Proposal: 3 new SDK headers + additions to 1 existing header
 
-These are shared ULP-common infrastructure headers used by **both** XRDMA
-and SMBD. They are stable abstractions, not internal implementation details.
+### New: `sdk_include/FunOS/networking/rdma/ulp/rdma_dpi.h`
 
-### 1.1 `networking/rdma/ulp/common/rdma_dpi_buf.h` → **Promote**
-- Used by: `xrdma_buf.c`, `xrdma_buf.h`, `xrdma_frmr.c`, `xrdma_recv.c`, `xrdma_send.c`
-- Also used by: SMBD (`smbd_fp.c`, `smbd_recv.c`, etc.)
-- Symbols: `struct rdma_dpi_buf`, `struct rdma_dpi_bufs_table`,
-  `rdma_dpi_get_buf_item()`, `rdma_dpi_put_buf_item()`,
-  `rdma_dpi_init_buf_free_list()`, `rdma_dpi_get_buf_noblock()`,
-  `rdma_dpi_free_buf()`, `rdma_dpi_free_bufs_table_push()`,
-  `rdma_dpi_query_bufs_table()`
-- **Rationale**: Well-defined buffer management API for ULPs. Stable.
+Consolidates the 3 ULP-common data-plane infrastructure APIs that both
+XRDMA and SMBD use. These are clean abstractions, not internals.
 
-### 1.2 `networking/rdma/ulp/common/rdma_dpi_frmr.h` → **Promote**
-- Used by: `xrdma_frmr.c`, `xrdma_frmr.h`
-- Also used by: SMBD (`smbd_frmr.c`, `smbd_frmr.h`)
-- Symbols: `struct rdma_dpi_frmr_table`, `struct rdma_dpi_create_frmrs_state`,
-  `rdma_dpi_get_frmr_item()`, `rdma_dpi_put_frmr_item()`,
-  `rdma_dpi_frmr_tab_from_restab()`, `rdma_dpi_init_frmr_free_list()`,
-  `rdma_dpi_init_frmr_res_items_push()`,
-  `rdma_dpi_init_frmr_res_items_ext_mem_push()`
-- **Rationale**: FRMR (Fast Registration Memory Region) API shared by ULPs. Stable.
+**Source**: cherry-pick from `networking/rdma/ulp/common/rdma_dpi_buf.h`,
+`rdma_dpi_frmr.h`, `rdma_dpi_res_mgr.h`.
 
-### 1.3 `networking/rdma/ulp/common/rdma_dpi_res_mgr.h` → **Promote**
-- Used by: `xrdma_operation.c/h`, `xrdma_recv.c/h`, `xrdma_frmr.c`, `xrdma_buf.c`
-- Also used by: SMBD (`smbd_operation.c/h`, `smbd_recv.c`, etc.)
-- Symbols: `enum rdma_dpi_res_types`, `enum rdma_dpi_res_mem_types`,
-  `struct rdma_dpi_res_table`, `struct rdma_dpi_res_table_counters`,
-  `struct rdma_dpi_res_table_query_ovw`,
-  `rdma_dpi_alloc_res_table_push()`, `rdma_dpi_free_res_table_push()`,
-  `rdma_dpi_get_res_item()`, `rdma_dpi_get_res_item_nf()`,
-  `rdma_dpi_free_res_item()`, `rdma_dpi_res_fid()`,
-  `rdma_dpi_query_restab()`, `rdma_dpi_inc_res_in_use()`
-- **Rationale**: Generic ULP resource management. Stable.
-
-### 1.4 `services/rdma_cm/ulp/common/rdma_cpi_states.h` → **Promote**
-- Used by: `xrdma_internal.h` → propagates to 12 xrdma files
-- Also used by: SMBD (`smbd_internal.h`), `rdma_cpi_dpi_internal.h`
-- Symbols: `enum rdma_cpi_socket_states` — 7 values
-  (`RDMA_CPI_SOCKET_STATE_INIT`, `_CONNECTING`, `_CONNECTED`,
-  `_DISC_NOTIFIED`, `_DISCONNECTING`, `_DISCONNECTED`, `_MAX`)
-- **Rationale**: Simple enum, used pervasively for socket state machine.
-  59 usages across 4 xrdma files. Already a de-facto public API.
-
-### 1.5 `networking/rdma/ulp/common/rdma_cpi_dpi_internal.h` → **Promote**
-- Used by: `xrdma.c`, `xrdma_internal.h`, `xrdma_send.h`
-- Also used by: SMBD, rdma_cpi.c, rdma_cpi_util.c, rdma_dpi.c
-- Symbols: `struct rdma_cpi_socket`, `struct rdma_cpi_mem_descriptor`,
-  `struct xrdma_conn_params` (xrdma-specific but embedded here),
-  socket config union fields
-- **Rationale**: Core CPI/DPI shared types needed by any ULP.
-- **Note**: Contains `struct xrdma_conn_params` — this xrdma-specific
-  type should either stay (accepted coupling) or be split into a separate
-  header that xrdma registers. Recommend: keep as-is for now since SMBD
-  has its own `smbd_conn_params` in the same header.
+| What | Why |
+|------|-----|
+| `struct rdma_dpi_buf`, `struct rdma_dpi_bufs_table` | Buffer alloc/free for ULP data plane |
+| `rdma_dpi_get_buf_item()`, `rdma_dpi_put_buf_item()`, `rdma_dpi_init_buf_free_list()`, `rdma_dpi_get_buf_noblock()`, `rdma_dpi_free_buf()`, `rdma_dpi_free_bufs_table_push()`, `rdma_dpi_query_bufs_table()` | Buffer management API |
+| `struct rdma_dpi_frmr_table`, `struct rdma_dpi_create_frmrs_state` | FRMR table management |
+| `rdma_dpi_get_frmr_item()`, `rdma_dpi_put_frmr_item()`, `rdma_dpi_frmr_tab_from_restab()`, `rdma_dpi_init_frmr_free_list()`, `rdma_dpi_init_frmr_res_items_push()`, `rdma_dpi_init_frmr_res_items_ext_mem_push()` | FRMR alloc/free API |
+| `enum rdma_dpi_res_types` (7 values), `enum rdma_dpi_res_mem_types` (4 values) | Resource type enums |
+| `struct rdma_dpi_res_table`, `struct rdma_dpi_res_table_counters`, `struct rdma_dpi_res_table_query_ovw` | Resource table types |
+| `rdma_dpi_alloc_res_table_push()`, `rdma_dpi_free_res_table_push()`, `rdma_dpi_get_res_item()`, `rdma_dpi_get_res_item_nf()`, `rdma_dpi_free_res_item()`, `rdma_dpi_res_fid()`, `rdma_dpi_query_restab()`, `rdma_dpi_inc_res_in_use()` | Resource management API |
 
 ---
 
-## Category 2: Headers to promote with xrdma-specific content removed
+### New: `sdk_include/FunOS/networking/rdma/ulp/rdma_cpi.h`
 
-### 2.1 `networking/rdma/ulp/common/rdma_cpi_dpi_wuh.h` → **Promote (split)**
-- Used by: `xrdma.c`, `xrdma_operation.c`
-- Also used by: SMBD, rdma_cpi.c
-- Contains: ~30 generic `rdma_cpi_*` handler decls, ~7 `xrdma_*` handler
-  decls, ~5 `smbd_*` handler decls
-- **Proposal**: Promote with **only the generic `rdma_cpi_*` handlers**.
-  Move the `xrdma_*` declarations into xrdma's own internal header.
-  Move the `smbd_*` declarations into SMBD's own internal header.
-  This is the cleanest split — the promoted header becomes purely
-  ULP-agnostic infrastructure.
+Consolidates ULP-common control-plane types and socket state machine.
 
-### 2.2 `networking/rdma/rdma_internal.h` → **Promote subset as new SDK header**
-- Used by: 21 xrdma files (most widely used)
-- Symbols actually needed by xrdma:
-  - `rdma_from_hton_flow()` (14 uses) — flow lookup
-  - `rdma_from_ntoh_flow()` (1 use)
-  - `mrinfo_from_id()` (4 uses) — MR lookup
-  - `struct rdma_flow` — flow object
-  - `struct rdma_mr`, `struct rdma_mr_meta` — MR types
-  - `RDMA_MR_STAG_TO_ID()`, `RDMA_GET_MR_STATE()`,
-    `RDMA_SET_MR_STATE()`, `RDMA_SET_MR_FLAGS()` — MR macros
-  - `enum roce_mr_state` values
-- **Proposal**: Create a new **`sdk_include/FunOS/networking/rdma/rdma_ulp_internal.h`**
-  that exposes only:
-  - `struct rdma_flow` (opaque or minimal definition)
-  - Flow lookup functions: `rdma_from_hton_flow()`, `rdma_from_ntoh_flow()`
-  - `struct rdma_mr`, `struct rdma_mr_meta` (or opaque + accessors)
-  - MR lookup: `mrinfo_from_id()`
-  - MR state macros: `RDMA_MR_STAG_TO_ID()`, `RDMA_GET/SET_MR_STATE/FLAGS()`
-  - `enum roce_mr_state`
-- **Do NOT promote**: RDMA PCB internals, config tables, init routines,
-  global state — those stay internal to FunOS.
+**Source**: cherry-pick from `networking/rdma/ulp/common/rdma_cpi_dpi_internal.h`
+and `services/rdma_cm/ulp/common/rdma_cpi_states.h`.
 
-### 2.3 `services/rdma_cm/rdma_cm_internal.h` → **Not needed directly**
-- Used by: `xrdma.c` only
-- But the **only symbols xrdma uses** are the `RDMA_CPI_SOCKET_STATE_*`
-  enums, which come from `rdma_cpi_states.h` (promoted in 1.4 above).
-- **Proposal**: Replace `#include <services/rdma_cm/rdma_cm_internal.h>`
-  with `#include <services/rdma_cm/ulp/common/rdma_cpi_states.h>` (or
-  the new SDK path) in xrdma.c. **No promotion needed.**
+| What | Why |
+|------|-----|
+| `enum rdma_cpi_socket_states` — 7 values (`_INIT`, `_CONNECTING`, `_CONNECTED`, `_DISC_NOTIFIED`, `_DISCONNECTING`, `_DISCONNECTED`, `_MAX`) | Socket state machine — 59 usages across 4 xrdma files, also used by SMBD |
+| `struct rdma_cpi_socket` | Control-plane socket — xrdma accesses fields: `app_cmf`, `client`, `dp_sock`, `funxrdma_params`, `pd`, `socket_config`, `socket_id`, `state`, `vp` |
+| `struct rdma_cpi_listen_socket` | Listen socket type |
+| `struct rdma_cpi_mem_descriptor` | Memory descriptor for CPI |
+| `struct xrdma_conn_params` | Connection params (xrdma-specific but embedded in CPI socket) |
+| `struct rdma_dpi_frmr` | FRMR descriptor (defined in cpi_dpi_internal.h) |
+| `struct rdma_dpi_buf_registration`, `struct rdma_dpi_frmr_bufreg` | Buffer registration types |
+| `typedef enum socket_type_e` | Socket type enum |
+| Trace/log macros: `RDMA_ULP_TRACE`, `RDMA_CPI_TRACE`, `RDMA_DPI_TRACE` | Per-socket tracing |
+| Constants: `RDMA_DPI_SOCK_FTR_POW2`, `RDMA_CPI_PAGE_SHIFT`, etc. | ULP config constants |
+
+**Not included** from `rdma_cm_internal.h`: nothing — xrdma's only use of
+that header was for socket state enums, which are covered by `rdma_cpi_states.h`
+content above.
 
 ---
 
-## Category 3: Promote single symbol (trivial)
+### New: `sdk_include/FunOS/networking/rdma/rdma_flow.h`
 
-### 3.1 `hw/dam/dam.h` → **Promote one macro**
-- Used by: `xrdma_dam.c` only
-- Only symbol used: `DAM_MAX_REFERENCES_PER_INDEX` (value: 255)
-- **Proposal**: Add this single `#define` to an existing SDK header
-  (e.g., `sdk_include/FunOS/networking/rdma/rdma.h` or a small
-  `sdk_include/FunOS/hw/dam/dam_constants.h`). Or just hardcode 255
-  in xrdma_dam.c with a compile-time assert.
+Clean SDK view of RDMA flow and MR types needed by ULPs. Replaces all
+xrdma usage of `networking/rdma/rdma_internal.h`.
 
----
+**Source**: cherry-pick minimal subset from `rdma_internal.h`.
 
-## Category 4: Drop — unused includes
+| What | Why |
+|------|-----|
+| `struct rdma_mr` (64 bytes, HW layout) | MR entry — xrdma reads/writes `opcode_flags` via macros |
+| `struct rdma_mr_meta` | MR metadata — xrdma accesses via `rdma_get_mr_meta()` |
+| `enum roce_mr_state` — 3 values (`INVALID`, `FREE`, `VALID`) | MR state checks in `xrdma_frmr.c` |
+| `RDMA_MR_STAG_TO_ID()`, `RDMA_GET_MR_STATE()`, `RDMA_SET_MR_STATE()`, `RDMA_SET_MR_FLAGS()` | MR state/flags macros — 15 usages in `xrdma_frmr.c` |
+| `struct rdma_flow` | Flow object — xrdma accesses: `rdma_hton_flow`, `rdma_ntoh_flow`, `rdma_id`, `rflow`, `rflow.loc_qpn`, `rflow.qp_caps`, `ulp.cmpl_dispatch_cb`, `ulp.pcb` |
+| `struct rdma_ulp_state`, `union rdma_ulp_pcb` | ULP state within flow — xrdma sets `cmpl_dispatch_cb`, reads `pcb.xrdma_dp_sock` |
+| `rdma_from_hton_flow()` | Flow lookup from hton flow — 14 call sites |
+| `rdma_from_ntoh_flow()` | Flow lookup from ntoh flow — 1 call site |
+| `mrinfo_from_id()` | MR lookup by ID — 4 call sites |
+| `rdma_get_mr_meta()` | MR metadata lookup — 1 call site |
+| `roce_flow_color_chk()` | Flow color validation — 7 call sites (from `roce_cmpl_wu_v2.h`) |
+| `roce_mr_update_entry()` | MR page table update — 1 call site (from `roce_mr.h`) |
 
-### 4.1 `hw/ddr_buf/ddr_buf.h` → **Remove include**
-- Included by `xrdma_dam.c` but **zero symbols used**. Uses nvmem
-  abstraction instead. Safe to delete the `#include`.
+**Not included**: `struct rdma` (global state), `struct rdma_mr_tab`,
+`struct rdma_pd_tab`, config tables, init routines, DCQCN internals,
+rnic manager, iwarp internals — all stay in FunOS.
 
-### 4.2 `hw/hbm_buf/hbm_buf.h` → **Remove include**
-- Same as above — included but no symbols used.
-
-### 4.3 `hw/rnic/hw_rnic.h` → **Remove include**
-- Included by `xrdma_operation.c` but **zero symbols used**.
-
----
-
-## Category 5: Single-function dependencies (small promotions)
-
-### 5.1 `networking/rdma/roce/roce_cmpl_wu_v2.h` → **Promote one function**
-- Used by: `xrdma.c` only
-- Only symbol: `roce_flow_color_chk()` — 7 call sites for flow color
-  validation
-- **Proposal**: Add `roce_flow_color_chk()` declaration to a new or
-  existing SDK header (e.g., `sdk_include/FunOS/networking/rdma/rdma.h`
-  or new `rdma_roce.h`).
-
-### 5.2 `networking/rdma/roce/roce_mr.h` → **Promote one function**
-- Used by: `xrdma_medium.c` only
-- Only symbol: `roce_mr_update_entry()` — 1 call site
-- **Proposal**: Add `roce_mr_update_entry()` declaration alongside
-  the MR types in the new `rdma_ulp_internal.h` (see 2.2).
+**Note**: `struct rdma_flow` depends on `struct flow` (already in SDK),
+`struct roce_flow`/`struct iwarp_flow` (need to verify these are in SDK
+or add forward declarations), `struct rdma_ulp_state` (included here).
 
 ---
 
-## Summary table
+### Addition to existing: `sdk_include/FunOS/networking/rdma/rdma.h`
 
-| Header | Action | What gets promoted |
-|--------|--------|--------------------|
-| `rdma_dpi_buf.h` | Promote as-is | Full header (shared ULP infra) |
-| `rdma_dpi_frmr.h` | Promote as-is | Full header (shared ULP infra) |
-| `rdma_dpi_res_mgr.h` | Promote as-is | Full header (shared ULP infra) |
-| `rdma_cpi_states.h` | Promote as-is | Socket state enum (7 values) |
-| `rdma_cpi_dpi_internal.h` | Promote as-is | CPI/DPI shared types |
-| `rdma_cpi_dpi_wuh.h` | Promote with split | Generic `rdma_cpi_*` handlers only; remove xrdma_*/smbd_* |
-| `rdma_internal.h` | New SDK header | Subset: flow lookup, MR types/macros, MR lookup |
-| `rdma_cm_internal.h` | **No promotion** | Replace include with `rdma_cpi_states.h` |
-| `dam.h` | One `#define` | `DAM_MAX_REFERENCES_PER_INDEX` (or hardcode) |
-| `ddr_buf.h` | **Drop include** | Unused |
-| `hbm_buf.h` | **Drop include** | Unused |
-| `hw_rnic.h` | **Drop include** | Unused |
-| `roce_cmpl_wu_v2.h` | One function | `roce_flow_color_chk()` |
-| `roce_mr.h` | One function | `roce_mr_update_entry()` |
+Add one constant currently in `hw/dam/dam.h`:
 
-**Total new SDK surface**: 5 headers promoted as-is + 1 new `rdma_ulp_internal.h`
-(subset of `rdma_internal.h`) + 1 split (`rdma_cpi_dpi_wuh.h`) + 3 single-symbol
-additions. 3 unused includes dropped. 1 include swapped.
+| What | Why |
+|------|-----|
+| `DAM_MAX_REFERENCES_PER_INDEX` (= 255) | Used in `xrdma_dam.c` for refcount validation — 4 call sites |
+
+**Alternative**: hardcode `255` in `xrdma_dam.c` with a `static_assert`
+against the real define (when building in-tree). Avoids polluting the
+RDMA SDK header with a DAM constant. **Recommend this alternative.**
+
+---
+
+## Headers that DON'T need promotion
+
+### Drop unused includes (clean up in xrdma before move)
+
+| Header | Included by | Reason to drop |
+|--------|-------------|----------------|
+| `hw/ddr_buf/ddr_buf.h` | `xrdma_dam.c` | Zero symbols used — nvmem abstraction used instead |
+| `hw/hbm_buf/hbm_buf.h` | `xrdma_dam.c` | Zero symbols used — same |
+| `hw/rnic/hw_rnic.h` | `xrdma_operation.c` | Zero symbols used |
+
+### Replace include (no promotion needed)
+
+| Header | Action |
+|--------|--------|
+| `services/rdma_cm/rdma_cm_internal.h` | Replace with new `rdma_cpi.h` — xrdma only used socket state enums |
+
+### Split xrdma-specific content out
+
+| Header | Action |
+|--------|--------|
+| `networking/rdma/ulp/common/rdma_cpi_dpi_wuh.h` | Remove `xrdma_*` and `smbd_*` handler declarations from this file. Move xrdma handler decls into xrdma's own header (moves with xrdma). Keep only generic `rdma_cpi_*` handler decls. **No SDK promotion needed** — xrdma defines these handlers, so their declarations move with it. |
+
+---
+
+## Summary
+
+| Action | Count | Details |
+|--------|-------|---------|
+| **New SDK headers** | 3 | `rdma_dpi.h`, `rdma_cpi.h`, `rdma_flow.h` |
+| **Drop unused includes** | 3 | `ddr_buf.h`, `hbm_buf.h`, `hw_rnic.h` |
+| **Replace include** | 1 | `rdma_cm_internal.h` → `rdma_cpi.h` |
+| **Split handler decls** | 1 | `rdma_cpi_dpi_wuh.h` — remove xrdma/smbd entries |
+| **Hardcode constant** | 1 | `DAM_MAX_REFERENCES_PER_INDEX` in `xrdma_dam.c` |
+| **No change** | 0 | No `*_internal.h` in SDK |
+
+**Total new SDK surface**: 3 clean, purpose-named headers. Zero internal
+headers exposed.
