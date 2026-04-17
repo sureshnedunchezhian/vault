@@ -88,6 +88,46 @@ XRDMA objects compile into `libfunstorage.a` alongside existing storage code.
 XRDMA consumes RDMA SDK headers (rdma.h, rdma_ulp.h, rdma_cm.h) from FunSDK.
 XStore/csnetlib switches to the repo-local xrdma.h include.
 
+## XRDMA's own dependencies on FunOS APIs
+
+All `<FunOS/...>` SDK headers (flows, nucleus, platform, utils, services,
+FunHCI) are already in FunSDK and available to Storage-xDPU-XStore — **no
+work needed** for those.
+
+The following FunOS-internal headers are used by XRDMA source but are
+**NOT in FunSDK** today. These must be promoted to SDK or the dependency
+must be reworked:
+
+| Category | Header | Notes |
+|----------|--------|-------|
+| HW | `hw/dam/dam.h` | DAM buffer allocation |
+| HW | `hw/ddr_buf/ddr_buf.h` | DDR buffer management |
+| HW | `hw/hbm_buf/hbm_buf.h` | HBM buffer management |
+| HW | `hw/rnic/hw_rnic.h` | RNIC HW interface |
+| RDMA internal | `networking/rdma/rdma_internal.h` | Core RDMA internals |
+| RDMA internal | `networking/rdma/roce/roce_cmpl_wu_v2.h` | RoCE completion WU |
+| RDMA internal | `networking/rdma/roce/roce_mr.h` | RoCE memory regions |
+| RDMA ULP common | `networking/rdma/ulp/common/rdma_cpi_dpi_internal.h` | CPI/DPI shared types |
+| RDMA ULP common | `networking/rdma/ulp/common/rdma_cpi_dpi_wuh.h` | CPI/DPI WU handlers |
+| RDMA ULP common | `networking/rdma/ulp/common/rdma_dpi_buf.h` | DPI buffer helpers |
+| RDMA ULP common | `networking/rdma/ulp/common/rdma_dpi_frmr.h` | DPI FRMR helpers |
+| RDMA ULP common | `networking/rdma/ulp/common/rdma_dpi_res_mgr.h` | DPI resource manager |
+| Services internal | `services/rdma_cm/rdma_cm_internal.h` | RDMA CM internals |
+| Services internal | `services/rdma_cm/ulp/common/rdma_cpi_states.h` | CPI state machine |
+| Props/utils | `props_bridges/sock_bridge.h` | Socket bridge framework |
+| Per-VP stats | `utils/common/pervp_stats.h` | 47 xrdma_* counter calls (INC/DEC/INC_BY_VAL) across ~40 distinct counters; plus 6 roce_* counters. Uses fixed X-macro enum — **not dynamically extensible** |
+
+**FTR**: `ftr.h` **is already in FunSDK** (SDK header). XRDMA uses FTR for
+per-socket trace allocation/archival (~24 call sites). No SDK promotion
+needed.
+
+**pervp_stats**: `pervp_stats.h` is **NOT in FunSDK**. XRDMA uses ~40
+distinct `xrdma_*` counters plus ~6 shared `roce_*` counters. The counters
+are defined via a fixed X-macro in FunOS — this needs either:
+(a) promoting the header to SDK, or (b) making counter registration
+dynamic, or (c) keeping xrdma counter definitions in FunOS as residual
+coupling.
+
 ## Current in-repo couplings that must be cleaned up (FunOS side)
 Today, multiple FunOS files reach past the public SDK header and pull
 **internal** XRDMA headers. These need to be reworked before XRDMA can
