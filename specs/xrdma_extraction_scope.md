@@ -5,20 +5,32 @@ The XRDMA ULP (Upper Layer Protocol) currently lives inside the FunOS source
 tree. We want to relocate it into the **Storage-xDPU-XStore** repo
 (`msazure.visualstudio.com/One/_git/Storage-xDPU-XStore`), which already
 hosts XStore/csnetlib storage code and is the primary consumer of the XRDMA
-API. Storage-xDPU-XStore builds `libfunstorage.a` and delivers it to FunOS
-via FunSDK.
+API.
 
-After the move, XRDMA source will be compiled as part of `libfunstorage`
-alongside the existing storage code that already consumes it. FunOS will
-continue to consume XRDMA through the public SDK header
-(`sdk_include/FunOS/networking/rdma/ulp/xrdma/xrdma.h`) only.
+### Build & dependency flow
+```
+FunOS ──builds──► FunSDK (ships RDMA SDK headers: rdma.h, rdma_ulp.h, rdma_cm.h, …)
+                      │
+                      ▼
+           Storage-xDPU-XStore (consumes FunSDK)
+             ├── xrdma code + xrdma.h (moved here)
+             ├── xstore / csnetlib (existing consumer)
+             └── builds libfunstorage.a / funos-storage image
+```
+
+After the move:
+- **FunOS has zero XRDMA headers or source.** The `sdk_include/.../xrdma/xrdma.h`
+  header also moves out.
+- XRDMA source compiles in Storage-xDPU-XStore, consuming the RDMA SDK
+  headers delivered via FunSDK.
+- XStore/csnetlib uses XRDMA via repo-local includes (no SDK round-trip).
 
 ## Why
 - Decouple XRDMA lifecycle (development, review, release) from FunOS.
 - Enforce a stable public API: today several FunOS files reach directly into
   XRDMA internals, which blocks independent evolution of the ULP.
 - Co-locate XRDMA with its primary consumer (XStore/csnetlib), which already
-  lives in Storage-xDPU-XStore and uses XRDMA exclusively through the SDK
+  lives in Storage-xDPU-XStore and uses XRDMA exclusively through its public
   header.
 
 ## Current footprint in FunOS
@@ -28,27 +40,30 @@ continue to consume XRDMA through the public SDK header
 | XRDMA CM glue | `services/rdma_cm/ulp/xrdma/xrdma_cm.c` | ~740 LOC |
 | XRDMA apps | `apps/rdma/xrdma_ping.c`, `apps/rdma/xrdma_test_utils.{c,h}` | ~2.8K LOC |
 | XRDMA tests | `tests/xrdma_test.c` + xrdma branches in `tests/rdma_test.c`, `tests/rdma_cpi_test.c` | ~6K LOC |
-| Public API (stays in FunOS) | `sdk_include/FunOS/networking/rdma/ulp/xrdma/xrdma.h` | — |
+| Public API (also moves out) | `sdk_include/FunOS/networking/rdma/ulp/xrdma/xrdma.h` | — |
 
 ## Storage-xDPU-XStore repo (destination)
 The repo already:
-- Builds `libfunstorage-$(MACHINE).a` and installs into FunSDK via
-  `install-libfunstorage` target.
+- Consumes FunSDK (RDMA SDK headers, funosrt, funcrypto, etc.) to build
+  `libfunstorage-$(MACHINE).a` and the `funos-storage` image.
 - Has `src/build.mk` with `SUB_DIRS := storage storage_apps kv`.
 - Uses `<FunOS/networking/rdma/ulp/xrdma/xrdma.h>` (SDK header only) in
   `src/storage/xstore/csnetlib/csnetlib_xrl*.{c,h}` — no internal headers.
 - Has its own CI pipeline (`OneBranch.Official.FunStorage.yml`), test
   apps (`src/storage_apps/`), and FoD automation (`src/fod_automation/`).
 
-The XRDMA code will land as a new `SUB_DIRS` entry (e.g. `src/xrdma/`).
+After the move, XRDMA code lands as a new `SUB_DIRS` entry (`src/xrdma/`),
+and `xrdma.h` becomes a repo-local header. XStore/csnetlib switches from
+the FunSDK-delivered xrdma.h to the local copy.
 
 ## What moves out of FunOS (into Storage-xDPU-XStore)
 1. All 27 files under `networking/rdma/ulp/xrdma/`.
-2. `services/rdma_cm/ulp/xrdma/xrdma_cm.c` (XRDMA-specific CM dispatch).
-3. `apps/rdma/xrdma_ping.c`, `apps/rdma/xrdma_test_utils.{c,h}`.
-4. `tests/xrdma_test.c`, plus the xrdma-only branches split out of
+2. `sdk_include/FunOS/networking/rdma/ulp/xrdma/xrdma.h` (public API header).
+3. `services/rdma_cm/ulp/xrdma/xrdma_cm.c` (XRDMA-specific CM dispatch).
+4. `apps/rdma/xrdma_ping.c`, `apps/rdma/xrdma_test_utils.{c,h}`.
+5. `tests/xrdma_test.c`, plus the xrdma-only branches split out of
    `tests/rdma_test.c` and `tests/rdma_cpi_test.c`.
-5. XRDMA-specific JSON dump helpers currently hosted in
+6. XRDMA-specific JSON dump helpers currently hosted in
    `props_bridges/dpsock_bridge.c` and `props_bridges/cpsock_bridge.c`
    (see coupling #3 below).
 
@@ -57,6 +72,7 @@ The XRDMA code will land as a new `SUB_DIRS` entry (e.g. `src/xrdma/`).
 src/
   xrdma/                        # NEW — added to SUB_DIRS
     build.mk                    # SRC_FILES for XRDMA core
+    include/xrdma.h             # ex-sdk_include/.../xrdma/xrdma.h (public API)
     core/                       # ex-networking/rdma/ulp/xrdma/*
     cm/                         # ex-services/rdma_cm/ulp/xrdma/xrdma_cm.c
     bridges/                    # ex-props_bridges/* XRDMA JSON generators
@@ -65,9 +81,9 @@ src/
     xrdma_test_utils.{c,h}      # ex-apps/rdma/xrdma_test_utils.*
     xrdma_test.c                # ex-tests/xrdma_test.c
 ```
-XRDMA objects will be compiled into `libfunstorage.a` alongside existing
-storage code, and delivered to FunOS through FunSDK the same way storage
-already is.
+XRDMA objects compile into `libfunstorage.a` alongside existing storage code.
+XRDMA consumes RDMA SDK headers (rdma.h, rdma_ulp.h, rdma_cm.h) from FunSDK.
+XStore/csnetlib switches to the repo-local xrdma.h include.
 
 ## Current in-repo couplings that must be cleaned up (FunOS side)
 Today, multiple FunOS files reach past the public SDK header and pull
@@ -135,21 +151,28 @@ leave these thin static entries in FunOS (minimal coupling).
 - `apps/build.mk` compiles XRDMA apps.
 - `tests/build.mk` compiles `xrdma_test.c`.
 
-**Fix**: Remove all of the above SRC_FILES entries. XRDMA is now compiled
-into `libfunstorage.a` in Storage-xDPU-XStore and linked into FunOS via
-FunSDK — the same way existing storage code is already linked.
+**Fix**: Remove all of the above SRC_FILES entries. Also remove
+`sdk_include/FunOS/networking/rdma/ulp/xrdma/xrdma.h`. XRDMA is now
+compiled into `libfunstorage.a` in Storage-xDPU-XStore, which consumes
+RDMA SDK headers from FunSDK.
 
-## New SDK surface (proposed)
-Added under `sdk_include/FunOS/networking/rdma/ulp/xrdma/`:
-- `xrdma.h` *(exists)* — primary public API.
-- `xrdma_ulp_ops.h` — ULP ops registration (init/fini push, DP socket
-  alloc/free).
-- `xrdma_cpi.h` — `struct xrdma_conn_params` + the accessors used by
-  `rdma_cpi.c`.
-- `xrdma_bridge.h` — registration hooks for props-bridge JSON generators.
-- `xrdma_query.h` — registration hooks for `roce_json` query tables.
-- `xrdma_wuh.h` — channel/WU handler prototypes referenced from
-  ULP-common code.
+## New RDMA SDK surface (proposed additions to FunOS sdk_include/)
+These are new **generic** RDMA ULP registration headers added to FunOS's
+`sdk_include/` so that any ULP (XRDMA, SMBD, etc.) can register itself at
+runtime. XRDMA-specific headers (including `xrdma.h`) are **not** in FunOS
+after the move.
+
+Added under `sdk_include/FunOS/networking/rdma/ulp/`:
+- `rdma_ulp_ops.h` — generic ULP ops registration (init/fini push, DP
+  socket alloc/free). Replaces direct references to `xrdma_init_state_push`.
+- `rdma_ulp_cpi.h` — generic CPI accessors (sq_depth, rq_depth, dp-socket
+  response flow). Replaces XRDMA internal header includes in `rdma_cpi.c`.
+- `rdma_ulp_bridge.h` — registration hooks for ULP-specific props-bridge
+  JSON generators.
+- `rdma_ulp_query.h` — registration hooks for ULP-specific `roce_json`
+  query tables.
+- `rdma_ulp_wuh.h` — generic channel/WU handler registration for ULP
+  handlers.
 
 ## Work breakdown (execution order)
 
@@ -166,20 +189,23 @@ Added under `sdk_include/FunOS/networking/rdma/ulp/xrdma/`:
 6. **Stats & FTR.** Move or dynamically register.
 
 ### Phase 2: Move code to Storage-xDPU-XStore
-7. **Add `src/xrdma/` directory** with `build.mk`; add `xrdma` to
-   `SUB_DIRS` in `src/build.mk`.
+7. **Add `src/xrdma/` directory** with `build.mk` and `include/xrdma.h`;
+   add `xrdma` to `SUB_DIRS` in `src/build.mk`.
 8. **Copy XRDMA core** (27 files) into `src/xrdma/core/`.
 9. **Copy xrdma_cm.c** into `src/xrdma/cm/`.
 10. **Copy XRDMA JSON generators** into `src/xrdma/bridges/`.
 11. **Copy XRDMA apps & tests** into `src/storage_apps/`.
+12. **Update XStore/csnetlib includes** to use repo-local xrdma.h instead
+    of FunSDK-delivered one.
 
 ### Phase 3: Remove from FunOS and validate
-12. **Remove XRDMA source** from FunOS tree.
-13. **Update 4 build.mk files** in FunOS (remove SRC_FILES).
-14. **Validate FunOS build** (POSIX, QEMU/s2) with XRDMA coming from
-    `libfunstorage.a`.
-15. **Validate Storage-xDPU-XStore build** compiles cleanly with XRDMA.
-16. **Run full RDMA test suite** and smoke-test XRDMA on QEMU / FoD.
+13. **Remove XRDMA source and xrdma.h** from FunOS tree (including
+    `sdk_include/FunOS/networking/rdma/ulp/xrdma/`).
+14. **Update 4 build.mk files** in FunOS (remove SRC_FILES).
+15. **Validate FunOS build** (POSIX, QEMU/s2) — no XRDMA references remain.
+16. **Validate Storage-xDPU-XStore build** compiles cleanly with XRDMA
+    using RDMA SDK headers from FunSDK.
+17. **Run full RDMA test suite** and smoke-test XRDMA on QEMU / FoD.
 
 ## Risks and open questions
 - **Per-VP stats / FTR dynamic registration** — current frameworks use
@@ -195,12 +221,17 @@ Added under `sdk_include/FunOS/networking/rdma/ulp/xrdma/`:
   move. Split points in `rdma_test.c` / `rdma_cpi_test.c` need review
   with the test owner.
 - **FunSDK version gating** — Storage-xDPU-XStore already gates features
-  on `FUNSDK_VERSION` / `FUNSDK_VERSION_MINOR`; new XRDMA SDK headers
-  will need the same gating if they add new APIs.
+  on `FUNSDK_VERSION` / `FUNSDK_VERSION_MINOR`; the new generic RDMA ULP
+  registration APIs in FunOS sdk_include/ will need version gating in
+  Storage-xDPU-XStore until the minimum SDK version includes them.
 - **Include paths** — XRDMA source currently uses `#include
   <networking/rdma/ulp/xrdma/...>` (FunOS-internal paths). After the
   move, these become local includes within Storage-xDPU-XStore; update
   include paths or add `-I` flags in the new `build.mk`.
+- **xrdma.h removal from FunSDK** — FunSDK currently ships xrdma.h
+  (from FunOS sdk_include/). After removal, any other FunSDK consumer
+  that uses xrdma.h will break. Verify no other repos depend on it
+  (csnetlib in Storage-xDPU-XStore switches to repo-local copy).
 
 ## Out of scope
 - Refactoring XRDMA internals beyond what's needed for the split.
