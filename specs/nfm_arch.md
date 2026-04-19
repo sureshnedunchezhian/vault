@@ -266,26 +266,29 @@ NFM has **no formal state machine** with explicit state enums/transitions. Inste
 
 #### Boot Lifecycle (Implicit FSM)
 
-```
-    ┌──────────────────┐
-    │   UNINITIALIZED   │   nfm_init() not yet called
-    └────────┬─────────┘
-             │  nfm_module_init()
-             ▼
-    ┌──────────────────┐
-    │   INITIALIZED     │   Tables registered, utils created, init_done=true
-    └────────┬─────────┘   per-feature init_done flags set
-             │  NFM_PIPELINE_LOADED_NOTIFICATION received
-             ▼
-    ┌──────────────────┐
-    │  PIPELINE_LOADED  │   Each feature's pipeline_loaded_cb() called
-    └────────┬─────────┘   Static entries installed
-             │  NFM_TABLES_PROGRAMMED_NOTIFICATION posted
-             │  + ready_to_switch_check() passes
-             ▼
-    ┌──────────────────┐
-    │   READY_FOR_TRAFFIC│  Self-MAC added, all checks pass
-    └──────────────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> UNINITIALIZED
+    UNINITIALIZED --> INITIALIZED : nfm_module_init()
+    INITIALIZED --> PIPELINE_LOADED : NFM_PIPELINE_LOADED notification
+    PIPELINE_LOADED --> READY_FOR_TRAFFIC : tables programmed + ready_to_switch passes
+
+    note right of INITIALIZED
+        Tables registered,
+        utils created,
+        per-feature init_done = true
+    end note
+
+    note right of PIPELINE_LOADED
+        Each feature's pipeline_loaded_cb() called,
+        static entries installed,
+        NFM_TABLES_PROGRAMMED posted
+    end note
+
+    note right of READY_FOR_TRAFFIC
+        Self-MAC added,
+        all ready_to_switch_check() pass
+    end note
 ```
 
 #### Per-Feature Init Flags
@@ -395,46 +398,59 @@ Several areas would benefit from explicit state machines:
 
 ## 10. Data Flow Diagram
 
+```mermaid
+graph TD
+    EXT["<b>External Callers</b><br/>SDN · MANA · FunTCP · Forwarding · DPCSH"]
+
+    EXT -- "push APIs<br/>(channel_push)" --> CORE
+    EXT -- "direct APIs<br/>(function call)" --> CORE
+    EXT -- "notifications<br/>(lport, pipeline)" --> CORE
+
+    subgraph CORE["NFM Core"]
+        TBL["Table Manager<br/><i>registry + CRUD</i>"]
+        FOPS["Feature Ops<br/><i>TAILQ callbacks</i>"]
+        NOTIF["Notification<br/>Handlers"]
+
+        subgraph FEATURES["Feature Modules"]
+            L2["L2"]
+            SDN["SDN / ENID"]
+            FF["Feature Filter"]
+            ERP["ERP"]
+            QOS["QoS"]
+            BNIC["BNIC*"]
+        end
+    end
+
+    TBL --> UTILS
+    FOPS --> UTILS
+
+    subgraph UTILS["Utility Libraries"]
+        TCAM["TCAM Lib"]
+        HT["Hash Table<br/>(cuckoo)"]
+        AD["Action Data<br/>(ref-counted)"]
+        METER["Meter"]
+        STATS["Flex Stats"]
+        FUNNEL["Funnel<br/>(pipeline schema)"]
+    end
+
+    UTILS --> HW["<b>HW Utils</b><br/>CSR dispatch"]
+    HW --> NU["<b>NU Hardware</b><br/>FFE Tables"]
+
+    style EXT fill:#a5d8ff,stroke:#1e1e1e
+    style CORE fill:#d0bfff,stroke:#1e1e1e
+    style UTILS fill:#fff3bf,stroke:#1e1e1e
+    style HW fill:#ffc9c9,stroke:#1e1e1e
+    style NU fill:#868e96,stroke:#1e1e1e,color:#fff
+    style BNIC fill:#ffd8a8,stroke:#1e1e1e
+    style L2 fill:#b2f2bb,stroke:#1e1e1e
+    style SDN fill:#b2f2bb,stroke:#1e1e1e
+    style FF fill:#b2f2bb,stroke:#1e1e1e
+    style ERP fill:#b2f2bb,stroke:#1e1e1e
+    style QOS fill:#b2f2bb,stroke:#1e1e1e
+    style FUNNEL fill:#d0bfff,stroke:#1e1e1e
 ```
-                              ┌─────────────────────┐
-                              │   External Callers   │
-                              │ (SDN, MANA, FunTCP,  │
-                              │  Forwarding, DPCSH)  │
-                              └─────────┬───────────┘
-                                        │
-                    ┌───────────────────┼───────────────────┐
-                    │                   │                   │
-              push APIs          direct APIs         notifications
-           (channel_push)     (function call)      (lport, pipeline)
-                    │                   │                   │
-                    ▼                   ▼                   ▼
-              ┌─────────────────────────────────────────────────┐
-              │                    NFM Core                      │
-              │  ┌──────────┐  ┌──────────┐  ┌───────────────┐ │
-              │  │ tblmgr   │  │ feature  │  │ notification  │ │
-              │  │ (registry │  │ ops      │  │ handlers      │ │
-              │  │  + CRUD)  │  │ (TAILQ)  │  │               │ │
-              │  └────┬─────┘  └────┬─────┘  └───────────────┘ │
-              └───────┼─────────────┼───────────────────────────┘
-                      │             │
-         ┌────────────┼─────────────┼────────────┐
-         │            │             │            │
-    ┌────▼───┐  ┌─────▼────┐  ┌────▼───┐  ┌────▼────┐
-    │  TCAM  │  │   Hash   │  │ Action │  │  Meter  │
-    │  Lib   │  │   Table  │  │  Data  │  │  Lib    │
-    └────┬───┘  └────┬─────┘  └────┬───┘  └────┬────┘
-         │           │             │            │
-         └─────────┬─┴─────────┬──┘            │
-                   │            │               │
-              ┌────▼────────────▼───────────────▼───┐
-              │         HW Utils (CSR dispatch)      │
-              └──────────────────┬──────────────────┘
-                                 │
-                         ┌───────▼───────┐
-                         │   NU Hardware  │
-                         │  (FFE Tables)  │
-                         └───────────────┘
-```
+
+> **Legend:** Green = implemented features · Orange (BNIC*) = stubs only
 
 ---
 

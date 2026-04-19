@@ -12,7 +12,7 @@ Shared documents, specs, presentations, and investigation notes.
 | [VFP Proxy Protocol V2 Spec](specs/vfp_proxy_protocol_v2_spec.md) | VFP Proxy Protocol V2 design specification |
 | [XRDMA Extraction Scope](specs/xrdma_extraction_scope.md) | Scope of work to move XRDMA ULP out of FunOS into a standalone repo |
 | [DD Connection Scaling](specs/dd_connection_scaling.md) | Why connection scaling matters for Direct Drive — architecture, memory constraints, and solutions |
-| [NFM Architecture](specs/nfm_arch.md) | NU Forwarding Module architecture — modules, APIs, VP context, state machines, issues & improvements ([diagram](specs/nfm_arch_diagram.excalidraw)) |
+| [NFM Architecture](specs/nfm_arch.md) | NU Forwarding Module architecture — modules, APIs, VP context, state machines, issues & improvements (includes Mermaid diagrams) |
 
 
 ## Presentations
