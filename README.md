@@ -26,3 +26,4 @@ Shared documents, specs, presentations, and investigation notes.
 |----------|-------------|
 | [ADO 3088420 — COMe PXE Boot](investigations/3088420_come_pxe_boot.md) | COMe not reachable after PXE boot analysis |
 | [ADO 2568748 — BAM ETP Cmdlist Resource Check](investigations/2568748_bam_alloc_etp_cmdlist_analysis.md) | BAM ETP cmdlist allocation paths missing xmt_res_nu resource checks in TCP control-plane |
+| [QP Teardown Crash — 32 QPs Loopback](investigations/qp_teardown_crash_32qps.md) | BUG_ON(qp_state != RESET) in roce_qp_fini during write_bw loopback teardown with 32 QPs on F1D1 |
