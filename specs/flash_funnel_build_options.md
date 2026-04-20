@@ -228,8 +228,8 @@ Every FunOS package that compiles source or installs configs needs explicit deps
 
 | Repo | Branch |
 |------|--------|
-| FunOS | `akki/realnfm` |
-| FunSDK | `suresh/nfm-funnel-dep` |
+| FunOS | [`akki/realnfm`](https://github.com/fungible-inc/FunOS/tree/akki/realnfm) |
+| FunSDK | [`suresh/nfm-funnel-dep`](https://github.com/fungible-inc/FunSDK-small/tree/suresh/nfm-funnel-dep) |
 
 ### Pros
 
@@ -295,9 +295,9 @@ A single intermediate package (e.g., `nfm.pipeline`, `nfm.flash`) replaces many 
 
 | Repo | Branch |
 |------|--------|
-| FunOS | `akki/funnelnfm` |
-| FunSDK | `akki/funnelpipeline` |
-| funnel-as | `akki/funnelpipeline` |
+| FunOS | [`akki/funnelnfm`](https://github.com/fungible-inc/FunOS/tree/akki/funnelnfm) |
+| FunSDK | [`akki/funnelpipeline`](https://github.com/fungible-inc/FunSDK-small/tree/akki/funnelpipeline) |
+| funnel-as | [`akki/funnelpipeline`](https://github.com/fungible-inc/funnel-as/tree/akki/funnelpipeline) |
 
 ### Existing Precedent: libfunhci
 
