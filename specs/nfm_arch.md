@@ -356,7 +356,7 @@ Several areas would benefit from explicit state machines:
 |---|------|---------|
 | 1 | **Thread Safety** | Feature-filter, ENID, QoS direct-call APIs have no serialization. If called from multiple VPs concurrently, TCAM/hash-table corruption is possible. These should use channel_push to NFM's home VP or add explicit locking. |
 | 2 | **Error Recovery** | Multi-step operations (e.g., `nfm_sdn_enid_vxlan_create` programs 3+ hash tables) have no rollback on partial failure in the active code path. The `#if 0` code had rollback logic but is disabled. |
-| 3 | **Global State** | Heavy use of global `g_*` structs (e.g., `g_nfm`, `g_enid_vxlan_tbl_mgr`, `g_erp_ffe`, `g_ff_tbl_mgr`, `g_qos_tbl_mgr`) violates the arch.md "partition by owner" principle. |
+| 3 | **Global State** | Heavy use of global `g_*` structs (e.g., `g_nfm`, `g_enid_vxlan_tbl_mgr`, `g_erp_ffe`, `g_ff_tbl_mgr`, `g_qos_tbl_mgr`) violates the "partition by owner" principle. |
 | 4 | **init_done Pattern** | Boolean `init_done` flags are checked at runtime without locks. A race between init and API call could slip through. |
 | 5 | **BNIC APIs** | All ~40 BNIC push APIs are unimplemented stubs (`/* TODO: implement */`). This is a major functional gap. |
 
@@ -364,9 +364,9 @@ Several areas would benefit from explicit state machines:
 
 ## 9. Proposed Improvements
 
-### 9.1 Architecture-Level (per arch.md guidance)
+### 9.1 Architecture-Level
 
-| # | Improvement | arch.md Principle | Impact |
+| # | Improvement | Principle | Impact |
 |---|-------------|-------------------|--------|
 | 1 | **Serialize all table writes on NFM's home VP** — route all feature-filter / ENID / QoS API calls through `channel_push` to `vplocal_faddr()`, like the lport handlers already do. | "Partition by owner" + "Don't share mutable state" | Eliminates concurrency hazards without locks. Natural backpressure from channel depth. |
 | 2 | **Implement per-feature lifecycle FSM** — replace `init_done` booleans with a proper state enum (`UNINIT→INIT→LOADED→ACTIVE→ERROR`). Guard API entry points with state checks. | "Prefer architecture fixes" | Enables proper teardown, hot-reload, and health monitoring. |
