@@ -91,32 +91,29 @@ The `res_fail` path (resource exhaustion during packet build) already has EQM re
 ### RNIC Mode (HW Offload)
 
 ```mermaid
-graph LR
-    subgraph "HIGH PRIORITY QUEUE"
-        direction TB
-        RX1[RNIC RXP: ACKs, Responses, Requests]
-        RX2[RNIC RXP: Error handlers]
+graph TD
+    subgraph HIGH["HIGH PRIORITY QUEUE"]
+        RX1["RNIC RXP: ACKs, Responses, Requests<br/>(all NO_ERR + ERR handlers)"]
         RX3[rnic_ntohf_restart_more]
-        TX_RSP[rnic_nu_cont_wu - RSP flow only]
+        TX_RSP["rnic_nu_cont_wu<br/>(RSP flow only)"]
         CTRL1[rnic_tx_flush_qp_done]
-        ADMIN[roce_vp_handler, roce_le_entry_add_done]
+        ADMIN["roce_vp_handler<br/>roce_le_entry_add_done"]
     end
 
-    subgraph "LOW PRIORITY QUEUE"
-        direction TB
+    subgraph LOW["LOW PRIORITY QUEUE"]
         TX1[rnic_send_pkts_wu]
         TX2[roce_fm_send_req_batch]
         TX3[roce_send_rsp_wu]
         EQM1[roce_tx_restart]
         EQM2[roce_rsp_restart]
         EQM3[roce_ntohf_restart]
-        CTRL2[rnic_flush_qp, rnic_clear_qp]
+        CTRL2["rnic_flush_qp<br/>rnic_clear_qp"]
         LOCAL[roce_comp_local_term_wr_wu]
     end
 
     style RX1 fill:#00cc66,stroke:#333,color:#000
-    style RX2 fill:#00cc66,stroke:#333,color:#000
     style RX3 fill:#00cc66,stroke:#333,color:#000
+    style TX_RSP fill:#ff9966,stroke:#333,color:#000
     style TX1 fill:#6699ff,stroke:#333,color:#000
     style TX2 fill:#6699ff,stroke:#333,color:#000
     style TX3 fill:#6699ff,stroke:#333,color:#000
