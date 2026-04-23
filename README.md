@@ -14,6 +14,7 @@ Shared documents, specs, presentations, and investigation notes.
 | [DD Connection Scaling](specs/dd_connection_scaling.md) | Why connection scaling matters for Direct Drive — architecture, memory constraints, and solutions |
 | [NFM Architecture](specs/nfm_arch.md) | NU Forwarding Module architecture — modules, APIs, VP context, state machines, issues & improvements (includes Mermaid diagrams) |
 | [Flash & Funnel Build Options](specs/flash_funnel_build_options.md) | Where should .flash/.yaml source programs live — FunOS vs tool repos, projectdb.json deps, artifact flows (includes Mermaid diagrams) |
+| [TCP Control Path Analysis](specs/tcp_control_path_analysis.md) | FunOS TCP control path — client/server establishment, teardown, abort, WU handlers, VP queues, flow directions, app interaction with tcp_pkt_gen/tcp_pkt_rcv (includes Mermaid diagrams) |
 
 
 ## Presentations
