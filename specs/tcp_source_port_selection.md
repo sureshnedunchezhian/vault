@@ -1,8 +1,8 @@
-# TCP Source Port Selection: Linux vs Windows — A Deep Technical Analysis
+# Source Port Selection: TCP (Linux/Windows) and RDMA CM — A Deep Technical Analysis
 
 ## Executive Summary
 
-TCP source port selection is a critical aspect of connection establishment that affects both **security** (predictability enables spoofing attacks) and **performance** (port exhaustion under high connection churn). Linux and Windows implement fundamentally different algorithms: Linux uses a **hash-based randomized selection with perturbation tables and even/odd parity scanning**, while Windows uses a **CSPRNG-seeded random pick with linear fallback**. Both follow guidance from **RFC 6056** (port randomization) and **RFC 6335** (IANA port ranges), though with significant implementation divergence. This report covers the algorithms, tunables, socket options, and RFC compliance for both platforms.
+Source port selection is a critical aspect of connection establishment that affects both **security** (predictability enables spoofing attacks) and **performance** (port exhaustion under high connection churn). Linux and Windows TCP implement fundamentally different algorithms: Linux uses a **hash-based randomized selection with perturbation tables and even/odd parity scanning**, while Windows uses a **CSPRNG-seeded random pick with linear fallback**. Both follow guidance from **RFC 6056** (port randomization) and **RFC 6335** (IANA port ranges), though with significant implementation divergence. Additionally, **RDMA CM** (used by RoCEv2/iWARP/InfiniBand) has its own source port concept embedded in the **Service ID** within CM MAD packets, using a simpler random-with-linear-scan algorithm that shares the same `ip_local_port_range` as TCP. This report covers the algorithms, tunables, socket options, and RFC compliance across all three.
 
 ---
 
@@ -326,23 +326,205 @@ Windows primarily implements **Algorithm 1 (Simple Randomization)** from RFC 605
 
 ---
 
-## 4. Comparative Analysis
+## 4. RDMA CM Source Port Selection (RoCEv2 / iWARP / InfiniBand)
 
-### 4.1 Algorithm Comparison
+### 4.1 Port Concept in RDMA CM
 
-| Feature | Linux | Windows |
-|---------|-------|---------|
-| **Primary Algorithm** | Hash-based (RFC 6056 Algo 3) | Simple Random (RFC 6056 Algo 1) |
-| **Hash Function** | SipHash over (saddr, daddr, dport, secret) | N/A (pure CSPRNG) |
-| **Fallback** | Coprime-step traversal of full range | Linear scan |
-| **Perturbation** | table_perturb[] adds cross-connection randomness | None |
-| **Parity Optimization** | Even/odd separation between connect/bind | None |
-| **TIME_WAIT Reuse** | `tcp_tw_reuse` sysctl (fine-grained) | `TcpTimedWaitDelay` (timer-based) |
-| **Per-socket Range** | `IP_LOCAL_PORT_RANGE` (Linux 6.3+) | Not available |
-| **Deferred Allocation** | `IP_BIND_ADDRESS_NO_PORT` | Not available |
-| **Port Sharing** | `SO_REUSEPORT` (kernel load-balanced) | `SO_REUSE_UNICASTPORT` |
+Unlike TCP where the source port is a first-class field in every packet header, RDMA CM uses a **logical port** embedded in the **Service ID** — a 64-bit identifier carried in CM MAD (Management Datagram) messages during connection setup (REQ/REP/RTU exchange). After connection establishment, data packets use **Queue Pair Numbers (QPN)** for demuxing, not ports.
 
-### 4.2 Default Ephemeral Port Range
+The Service ID encodes the port as follows[^18]:
+
+```
+Service ID (64-bit) = (port_space << 16) | port_number
+
+For RDMA_PS_TCP:  0x0000000001000000 | port
+For RDMA_PS_UDP:  0x0000000002000000 | port
+```
+
+The port number occupies the **lower 16 bits** of the Service ID, extracted by `cma_port_from_service_id()`:
+
+```c
+// drivers/infiniband/core/cma.c
+static u16 cma_port_from_service_id(__be64 service_id)
+{
+    return (u16)be64_to_cpu(service_id);
+}
+```
+
+### 4.2 Port Selection by Transport
+
+| Transport | Port in Wire Format | Where Port Appears |
+|-----------|-------------------|-------------------|
+| **RoCEv2** | Service ID in CM REQ MAD (over UDP:4791) | CM exchange only; data uses QPN |
+| **iWARP** | Actual TCP source port (iWARP runs over TCP) | Every packet (TCP header) |
+| **InfiniBand** | Service ID in CM REQ MAD | CM exchange only; data uses QPN |
+
+For **RoCEv2**, note that the UDP source port (used for ECMP hashing in data packets) is a **separate concept** from the CM source port discussed here. The UDP source port is derived from a hash of the QP number for load balancing; the CM port is the logical service endpoint identifier.
+
+### 4.3 Core Algorithm: `cma_alloc_any_port()`
+
+The entry point is `cma_get_port()` → `cma_alloc_any_port()` in [`drivers/infiniband/core/cma.c`][^19]:
+
+```c
+static int cma_alloc_any_port(enum rdma_ucm_port_space ps,
+                              struct rdma_id_private *id_priv)
+{
+    static unsigned int last_used_port;        // single static — anti-repeat
+    int low, high, remaining;
+    unsigned int rover;
+    struct net *net = id_priv->id.route.addr.dev_addr.net;
+
+    inet_get_local_port_range(net, &low, &high);  // same sysctl as TCP!
+    remaining = (high - low) + 1;
+    rover = get_random_u32_inclusive(low, remaining + low - 1);  // random start
+
+retry:
+    if (last_used_port != rover) {
+        bind_list = cma_ps_find(net, ps, (unsigned short)rover);
+        if (!bind_list)
+            ret = cma_alloc_port(ps, id_priv, rover);     // allocate new
+        else {
+            ret = cma_port_is_unique(bind_list, id_priv);  // check 4-tuple
+            if (!ret)
+                cma_bind_port(bind_list, id_priv);
+        }
+        if (!ret)
+            last_used_port = rover;   // remember to avoid immediate reuse
+        if (ret != -EADDRNOTAVAIL)
+            return ret;
+    }
+    if (--remaining) {
+        rover++;
+        if ((rover < low) || (rover > high))
+            rover = low;
+        goto retry;                   // linear scan fallback
+    }
+    return -EADDRNOTAVAIL;
+}
+```
+
+#### Algorithm Steps
+
+1. **Get range**: Calls `inet_get_local_port_range()` — reads `net.ipv4.ip_local_port_range`, the **same sysctl as TCP**[^20]
+2. **Random start**: `get_random_u32_inclusive(low, high)` — uniform random within range
+3. **Anti-repeat**: Skips `last_used_port` (single `static` variable) to avoid assigning the same port back-to-back
+4. **Uniqueness check**: `cma_port_is_unique()` validates the 4-tuple `(saddr, sport, daddr, dport)` is not already in use
+5. **Linear fallback**: If the random port is taken, increments `rover++` and wraps around, scanning the full range
+
+### 4.4 Uniqueness Check: `cma_port_is_unique()`
+
+The uniqueness check is a **4-tuple comparison** (not 5-tuple like TCP, since protocol is implicit in the port space)[^21]:
+
+```c
+static int cma_port_is_unique(struct rdma_bind_list *bind_list,
+                              struct rdma_id_private *id_priv)
+{
+    hlist_for_each_entry(cur_id, &bind_list->owners, node) {
+        // different dest port → unique
+        if (dport != cur_dport) continue;
+        // different src address → unique
+        if (cma_addr_cmp(saddr, cur_saddr)) continue;
+        // different dst address → unique
+        if (cma_addr_cmp(daddr, cur_daddr)) continue;
+        return -EADDRNOTAVAIL;  // conflict
+    }
+    return 0;
+}
+```
+
+This means the same source port can be reused for connections to **different destinations** — similar to TCP's 5-tuple uniqueness.
+
+### 4.5 Call Flow
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│       User Space: rdma_bind_addr(cm_id, addr) [port=0]       │
+│                   or rdma_resolve_addr()                      │
+└──────────────────────────┬───────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  cma_get_port(id_priv)                                       │
+│    ├─ port == 0? → cma_alloc_any_port()  ← ephemeral        │
+│    └─ port != 0? → cma_use_port()        ← explicit bind    │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ (ephemeral path)
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  cma_alloc_any_port()                                        │
+│    1. inet_get_local_port_range() → [32768, 60999]           │
+│    2. get_random_u32_inclusive(low, high) → rover             │
+│    3. Skip if rover == last_used_port                         │
+│    4. cma_ps_find() → check if port allocated in xarray      │
+│    5. cma_port_is_unique() → 4-tuple conflict check          │
+│    6. cma_bind_port() → assign to cm_id                      │
+│    7. last_used_port = rover                                  │
+│    8. Fallback: rover++ linear scan                           │
+└──────────────────────────┬───────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Port embedded in Service ID → CM REQ MAD sent to peer       │
+│  service_id = (ps << 16) | port                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### 4.6 RDMA CM API for Port Control
+
+```c
+// Create CM ID with port space
+rdma_create_id(event_channel, &cm_id, context, RDMA_PS_TCP);
+
+// Explicit source port
+addr.sin_port = htons(5000);
+rdma_bind_addr(cm_id, &addr);         // → cma_use_port()
+
+// Ephemeral source port (kernel picks)
+addr.sin_port = 0;
+rdma_bind_addr(cm_id, &addr);         // → cma_alloc_any_port()
+
+// Retrieve assigned port
+uint16_t port = ntohs(rdma_get_src_port(cm_id));
+```
+
+### 4.7 Algorithm Classification (per RFC 6056)
+
+RDMA CM implements **Algorithm 1 (Simple Randomization)** from RFC 6056, with:
+- Uniform random initial selection
+- Linear scan fallback (rover++)
+- Single `last_used_port` static for anti-repeat (no per-destination state)
+- No hashing, no perturbation tables, no parity optimization
+- Shares `ip_local_port_range` with TCP (they compete for the same pool)
+
+### 4.8 Why Simpler Than TCP?
+
+The simpler algorithm is justified because:
+1. **Connection frequency**: RDMA connections are long-lived; CM port selection happens orders of magnitude less often than TCP `connect()`
+2. **Security model**: RDMA is typically used within data centers, not across the internet — the spoofing threat model is lower
+3. **Port not in data path**: After connection setup, QPN is used for demuxing — the CM port is only relevant during the MAD exchange
+4. **No TIME_WAIT**: RDMA CM doesn't have TCP's TIME_WAIT state, reducing port exhaustion pressure
+
+---
+
+## 5. Comparative Analysis
+
+### 5.1 Algorithm Comparison
+
+| Feature | Linux TCP | Windows TCP | RDMA CM |
+|---------|-----------|-------------|---------|
+| **Primary Algorithm** | Hash-based (RFC 6056 Algo 3) | Simple Random (RFC 6056 Algo 1) | Simple Random (RFC 6056 Algo 1) |
+| **Hash Function** | SipHash over (saddr, daddr, dport, secret) | N/A (pure CSPRNG) | N/A (pure random) |
+| **Fallback** | Coprime-step traversal of full range | Linear scan | Linear scan (rover++) |
+| **Perturbation** | table_perturb[] adds cross-connection randomness | None | None |
+| **Parity Optimization** | Even/odd separation between connect/bind | None | None |
+| **Anti-Repeat** | Perturbation table update per connection | N/A | Single `last_used_port` static |
+| **TIME_WAIT Reuse** | `tcp_tw_reuse` sysctl (fine-grained) | `TcpTimedWaitDelay` (timer-based) | N/A (no TIME_WAIT) |
+| **Per-socket Range** | `IP_LOCAL_PORT_RANGE` (Linux 6.3+) | Not available | Not available |
+| **Deferred Allocation** | `IP_BIND_ADDRESS_NO_PORT` | Not available | Not available |
+| **Port Sharing** | `SO_REUSEPORT` (kernel load-balanced) | `SO_REUSE_UNICASTPORT` | `reuseaddr` flag on cm_id |
+| **Uniqueness Check** | 5-tuple (saddr, sport, daddr, dport, proto) | 5-tuple | 4-tuple (saddr, sport, daddr, dport) |
+
+### 5.2 Default Ephemeral Port Range
 
 | OS | Default Range | Size | IANA Compliant |
 |----|--------------|------|---------------|
@@ -353,7 +535,7 @@ Windows primarily implements **Algorithm 1 (Simple Randomization)** from RFC 605
 
 Linux's wider default range provides more ports but overlaps with the registered port range (1024–49151).
 
-### 4.3 Security Properties
+### 5.3 Security Properties
 
 | Property | Linux | Windows |
 |----------|-------|---------|
@@ -362,7 +544,7 @@ Linux's wider default range provides more ports but overlaps with the registered
 | **Sequential scanning resistance** | High (coprime step traversal) | Medium (linear fallback) |
 | **Reboot persistence** | No (secret regenerated) | No (CSPRNG reseeded) |
 
-### 4.4 Performance Under High Connection Churn
+### 5.4 Performance Under High Connection Churn
 
 | Scenario | Linux Advantages | Windows Advantages |
 |----------|-----------------|-------------------|
@@ -373,7 +555,7 @@ Linux's wider default range provides more ports but overlaps with the registered
 
 ---
 
-## 5. Summary of All Modes/Options
+## 6. Summary of All Modes/Options
 
 ### Linux Port Selection Modes
 
@@ -394,9 +576,18 @@ Linux's wider default range provides more ports but overlaps with the registered
 6. **Port Sharing** — `SO_REUSE_UNICASTPORT` enables multi-socket port sharing
 7. **TIME_WAIT Tuning** — `TcpTimedWaitDelay` registry value adjusts TIME_WAIT duration
 
+### RDMA CM Port Selection Modes
+
+1. **Default Mode** — Simple random selection from `ip_local_port_range` with `last_used_port` anti-repeat and linear fallback
+2. **Explicit Bind** — `rdma_bind_addr()` with specific port → `cma_use_port()` path
+3. **Port Space Selection** — `RDMA_PS_TCP` or `RDMA_PS_UDP` determines how port is encoded into Service ID
+4. **Reuseaddr** — `rdma_set_reuseaddr(cm_id, 1)` allows multiple listeners on same port (analogous to `SO_REUSEADDR`)
+
+**Note**: RDMA CM shares the `ip_local_port_range` pool with TCP. Under heavy mixed TCP + RDMA workloads, they compete for the same ephemeral ports.
+
 ---
 
-## 6. Key Implementation Files
+## 7. Key Implementation Files
 
 ### Linux Kernel Source
 
@@ -417,6 +608,15 @@ Linux's wider default range provides more ports but overlaps with the registered
 | `AFD.sys` | Ancillary Function Driver; user-kernel socket transition |
 | WFP API | Post-selection filtering (cannot modify port choice) |
 
+### RDMA CM (Linux Kernel)
+
+| File | Purpose |
+|------|---------|
+| `drivers/infiniband/core/cma.c` | `cma_alloc_any_port()`, `cma_get_port()`, `cma_use_port()` — CM port selection |
+| `include/rdma/rdma_cm.h` | `rdma_port_space` enum, `rdma_bind_addr()`, `rdma_get_src_port()` declarations |
+| `drivers/infiniband/core/cm.c` | IB CM REQ/REP/RTU message handling; Service ID encoding |
+| `include/rdma/ib_cm.h` | CM message structures, Service ID definitions |
+
 ---
 
 ## Confidence Assessment
@@ -431,6 +631,9 @@ Linux's wider default range provides more ports but overlaps with the registered
 | RFC compliance mapping | **High** | Direct RFC text analysis |
 | `SO_REUSE_UNICASTPORT` / `SO_PORT_SCALABILITY` behavior | **Medium-High** | Microsoft WinSock documentation |
 | `IP_LOCAL_PORT_RANGE` per-socket option | **High** | Linux 6.3+ kernel source |
+| RDMA CM algorithm details | **High** | Direct kernel source code analysis (`drivers/infiniband/core/cma.c`) |
+| RDMA CM shares `ip_local_port_range` | **High** | `cma_alloc_any_port()` calls `inet_get_local_port_range()` directly |
+| Service ID port encoding | **High** | `cma_port_from_service_id()` source code |
 
 ---
 
@@ -469,3 +672,11 @@ Linux's wider default range provides more ports but overlaps with the registered
 [^16]: [Microsoft WinSock: SO_REUSE_UNICASTPORT](https://learn.microsoft.com/en-us/windows/win32/winsock/so-reuse-unicastport-setsockopt)
 
 [^17]: [Microsoft WinSock: SO_PORT_SCALABILITY](https://learn.microsoft.com/en-us/windows/win32/winsock/so-port-scalability-setsockopt)
+
+[^18]: `drivers/infiniband/core/cma.c` line ~2491 — Service ID construction: `cpu_to_be64(((u64)id->ps << 16) + be16_to_cpu(cma_port(addr)))`.
+
+[^19]: [`drivers/infiniband/core/cma.c`](https://github.com/torvalds/linux/blob/master/drivers/infiniband/core/cma.c) — `cma_alloc_any_port()` implementation, lines ~3748-3795.
+
+[^20]: `drivers/infiniband/core/cma.c` line ~3758 — `inet_get_local_port_range(net, &low, &high)` shares range with TCP.
+
+[^21]: `drivers/infiniband/core/cma.c` lines ~3707-3745 — `cma_port_is_unique()` 4-tuple uniqueness check.
