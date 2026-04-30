@@ -15,11 +15,8 @@ Shared documents, specs, presentations, and investigation notes.
 | [NFM Architecture](specs/nfm_arch.md) | NU Forwarding Module architecture — modules, APIs, VP context, state machines, issues & improvements (includes Mermaid diagrams) |
 | [Flash & Funnel Build Options](specs/flash_funnel_build_options.md) | Where should .flash/.yaml source programs live — FunOS vs tool repos, projectdb.json deps, artifact flows (includes Mermaid diagrams) |
 | [TCP Control Path Analysis](specs/tcp_control_path_analysis.md) | FunOS TCP control path — client/server establishment, teardown, abort, WU handlers, VP queues, flow directions, app interaction with tcp_pkt_gen/tcp_pkt_rcv (includes Mermaid diagrams) |
-<<<<<<< Updated upstream
 | [Source Port Selection (TCP & RDMA CM)](specs/tcp_source_port_selection.md) | Linux vs Windows TCP and RDMA CM source port selection — algorithms (hash-based, CSPRNG, simple random), sysctl/registry tunables, socket options, Service ID encoding, RFC 6056/6335 compliance |
-=======
 | [F2 TMM Timer Architecture](specs/f2_tmm_timer_architecture.md) | F2 TMM timer block — RTL state machine, FGI/TWC commands, `nucleus/timer.h` + `hw_timer.h` SW API, `flow_timer` wrapper, race-window analysis between flow_timer and tcp_pkt_gen/rcv (includes Mermaid diagrams) |
->>>>>>> Stashed changes
 
 
 ## Presentations
