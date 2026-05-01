@@ -85,6 +85,39 @@ typedef struct _REGISTER_FILTER_REQUEST {
 
 ---
 
+## FunOS MANA BNIC Multicast Support (Summary)
+
+FunOS has full multicast filtering infrastructure for MANA — this is what funeth lacks.
+
+### Control Register Flags (`mana_bnic.h`)
+
+| Flag | Effect |
+|------|--------|
+| `allow_all_multicast` | Accept all multicast → steer to broadcast RX object |
+| `broadcast_rx_object_enable` | Enable/disable the broadcast RX object |
+| `promiscuous_receive` | Accept all non-matching packets via promiscuous vport |
+
+### RX Filtering Logic (`vi.c:664-675`)
+
+When a multicast packet arrives that **doesn't match** the Filter Table:
+
+1. `allow_all_multicast=1` → treat as broadcast (accept)
+2. `allow_all_multicast=0` and `promiscuous_receive=0` → **drop**
+3. `promiscuous_receive=1` → accept via promiscuous vport
+
+### Per-MAC Filter Table (`mana_bnic_rx.c`)
+
+- Hardware filter table with configurable entries
+- Each multicast MAC registered individually via `REGISTER_FILTER_REQUEST` GDMA command from Windows MANA driver
+- Matching happens **before** the `vi_rx_n2p_mana_unknown()` fallback path
+- Filter entries are added/removed dynamically as the host driver processes `OID_RECEIVE_FILTER_SET_FILTER` / `OID_RECEIVE_FILTER_CLEAR_FILTER`
+
+### Diagnostics (`mana_dpc.c`)
+
+`allow_all_multicast`, `broadcast_rx_object_enable`, and `promiscuous_receive` are all exposed via JSON dump for diagnostics.
+
+---
+
 ## funeth vs MANA Comparison
 
 | Aspect | MANA (BasicNic) | funeth |
