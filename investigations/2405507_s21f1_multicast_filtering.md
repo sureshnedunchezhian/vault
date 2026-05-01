@@ -4,8 +4,6 @@
 
 S21F1 NIC (funeth driver) accepts **all multicast packets** by default. It should only accept multicast traffic for specific multicast groups the host/application is interested in. Compared to Mellanox NICs which only accept standard multicast MACs (224.0.0.1 All Hosts, 224.0.0.251/252 mDNS), S21F1 receives everything including SSDP and other unwanted multicast traffic.
 
-**Related concern (Ravindran):** Excessive multicast traffic reaching the UEFI network stack caused PXE/DSCP processing failures during PXE boot.
-
 ---
 
 ## Root Cause
@@ -179,14 +177,14 @@ Get-NetAdapterAdvancedProperty -Name "funeth" | Where-Object { $_.DisplayName -l
 2. Filter in FunOS RX path before delivering to host
 3. Use NU hardware capabilities if available
 
-**Pros:** Filtering happens on DPU, reduces PCIe bandwidth; also works for PXE/UEFI path
+**Pros:** Filtering happens on DPU, reduces PCIe bandwidth
 **Cons:** Requires FunOS command protocol extension, harder to test
 
 ### Option C: Both (Defense in Depth)
 
 Implement Option A + Option B. Windows driver filters in software, FunOS filters in hardware. Belt and suspenders.
 
-**Pros:** Maximum filtering effectiveness, handles PXE case
+**Pros:** Maximum filtering effectiveness
 **Cons:** More code, more complexity
 
 ---
@@ -234,6 +232,5 @@ Implement Option A + Option B. Windows driver filters in software, FunOS filters
 
 1. **Decide on implementation approach** (Option A, B, or C)
 2. **Define multicast list size** — what `MaxMulticastListSize` to support
-3. **Investigate PXE boot path** — does UEFI BNIC driver also need changes?
-4. **Check if FunOS NU hardware has multicast hash/filter capabilities** for funeth flows
+3. **Check if FunOS NU hardware has multicast hash/filter capabilities** for funeth flows
 5. **Get `netsh int ipv4 show joins` from a live S21F1 system** to see actual multicast groups Windows subscribes to
