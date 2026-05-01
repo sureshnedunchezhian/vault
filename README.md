@@ -33,3 +33,4 @@ Shared documents, specs, presentations, and investigation notes.
 | [ADO 2568748 — BAM ETP Cmdlist Resource Check](investigations/2568748_bam_alloc_etp_cmdlist_analysis.md) | BAM ETP cmdlist allocation paths missing xmt_res_nu resource checks in TCP control-plane |
 | [QP Teardown Crash — 32 QPs Loopback](investigations/qp_teardown_crash_32qps.md) | BUG_ON(qp_state != RESET) in roce_qp_fini during write_bw loopback teardown with 32 QPs on F1D1 |
 | [ADO 3383627 — RDMA VP Priority & PFC](investigations/3383627_rdma_vp_priority_pfc.md) | RNIC TX/RX VP priority inversion causing BAM buildup and PFC at 11Mpps — root cause, fix, VP priority map, Mermaid flow diagrams |
+| [ADO 2405507 — S21F1 Multicast Filtering](investigations/2405507_s21f1_multicast_filtering.md) | S21F1 funeth NIC accepts all multicast — root cause analysis, MANA vs funeth comparison, NDIS OID gap analysis, implementation options |
